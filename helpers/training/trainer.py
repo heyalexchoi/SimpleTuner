@@ -57,6 +57,9 @@ from accelerate.logging import get_logger
 from diffusers.models.embeddings import get_2d_rotary_pos_embed
 from helpers.models.smoldit import get_resize_crop_region_for_grid
 
+from typing import Dict, Any, Union
+from helpers.adversarial.training import trainer as adversarial_trainer
+
 logger = get_logger(
     "SimpleTuner", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
 )
@@ -2328,7 +2331,7 @@ class Trainer:
 
         return max_grad_value
 
-    def prepare_batch(self, batch: list):
+    def prepare_batch(self, batch: list) -> Union[Dict[str, Any], bool]:
         """
         Prepare a batch for the model prediction.
 
@@ -2629,6 +2632,9 @@ class Trainer:
         self._train_initial_msg()
         self.mark_optimizer_train()
 
+        # start with train G
+        self.phase = adversarial_trainer.Phase.G
+
         # Only show the progress bar once on each machine.
         show_progress_bar = True
         if not self.accelerator.is_local_main_process:
@@ -2723,6 +2729,7 @@ class Trainer:
                 step += 1
                 prepared_batch = self.prepare_batch(iterator_fn(step, *iterator_args))
                 training_logger.debug(f"Iterator: {iterator_fn}")
+                training_logger.debug(f"Step: {step} Phase: {phase}")
                 if self.config.lr_scheduler == "cosine_with_restarts":
                     self.extra_lr_scheduler_kwargs["step"] = self.state["global_step"]
 
@@ -2772,6 +2779,8 @@ class Trainer:
                         f"Pooled embeds: {add_text_embeds.shape if add_text_embeds is not None else None}"
                     )
                     # Get the target for loss depending on the prediction type
+                    # usually for flux this is difference between noise and latents
+                    # for adversarial generator I suppose it would be the same
                     target = self.get_prediction_target(prepared_batch)
 
                     added_cond_kwargs = prepared_batch.get("added_cond_kwargs")
@@ -2805,12 +2814,24 @@ class Trainer:
                                     1.0
                                 )
 
-                    training_logger.debug("Predicting noise residual.")
-                    model_pred = self.model_predict(
+                    # training_logger.debug("Predicting noise residual.")
+                    # model_pred = self.model_predict(
+                    #     prepared_batch=prepared_batch,
+                    # )
+                    # loss = self._calculate_loss(
+                    #     prepared_batch, model_pred, target, apply_conditioning_mask=True
+                    # )
+                    assert isinstance(prepared_batch, dict)
+
+                    model_pred = adversarial_trainer.model_predict(
+                        trainer=self,
                         prepared_batch=prepared_batch,
                     )
-                    loss = self._calculate_loss(
-                        prepared_batch, model_pred, target, apply_conditioning_mask=True
+                    loss = adversarial_trainer.calculate_loss(
+                        trainer=self,
+                        prepared_batch=prepared_batch,
+                        model_pred=model_pred,
+                        target=target,
                     )
 
                     parent_loss = None
@@ -2899,9 +2920,12 @@ class Trainer:
                         logger.error(
                             f"Failed to get the last learning rate from the scheduler. Error: {e}"
                         )
+                    
+                    loss_label = "generator_loss" if self.phase == adversarial_trainer.Phase.G else "discriminator_loss"
+                    # TODO: add my new losses and metrics
                     wandb_logs.update(
                         {
-                            "train_loss": self.train_loss,
+                            loss_label: self.train_loss,
                             "optimization_loss": loss,
                             "learning_rate": self.lr,
                             "epoch": epoch,

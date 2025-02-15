@@ -95,7 +95,7 @@ class DiscHead(nn.Module):
 
         return out
 
-class Transformer2DDiscriminator(nn.Module):
+class FluxTransformer2DDiscriminator(nn.Module):
     """
     Discriminator that extracts intermediate features from a shared Flux transformer
     using PyTorch hooks. Features are extracted from attention layers of select transformer blocks (1, 15, 29, 43, 57).
