@@ -59,6 +59,9 @@ from helpers.models.smoldit import get_resize_crop_region_for_grid
 
 from typing import Dict, Any, Union
 from helpers.adversarial.training import trainer as adversarial_trainer
+from enum import Enum
+from helpers.adversarial.core.network.transformer_D import FluxTransformer2DDiscriminator
+from helpers.adversarial.training.trainer import Phase
 
 logger = get_logger(
     "SimpleTuner", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
@@ -188,6 +191,15 @@ class Trainer:
         self.controlnet = None
         self.ema_model = None
         self.validation = None
+        
+        # AC: any reason why this is isn't in the init adversarial components method?
+        # Initialize adversarial training components
+        self.discriminator = None
+        self.discriminator_optimizer = None
+        self.phase = Phase.G  # Start with generator phase
+        
+        if config.get("enable_adversarial_training"):
+            self.init_adversarial_components()
 
     def _config_to_obj(self, config):
         if not config:
@@ -2632,9 +2644,6 @@ class Trainer:
         self._train_initial_msg()
         self.mark_optimizer_train()
 
-        # start with train G
-        self.phase = adversarial_trainer.Phase.G
-
         # Only show the progress bar once on each machine.
         show_progress_bar = True
         if not self.accelerator.is_local_main_process:
@@ -2754,7 +2763,22 @@ class Trainer:
                 if "batch_luminance" in prepared_batch:
                     training_luminance_values.append(prepared_batch["batch_luminance"])
 
-                with self.accelerator.accumulate(training_models):
+                # AC: does this take into account gradient accumulation? do we want to determine n_discriminator_steps?
+                # Determine current phase
+                if step % (self.config.n_discriminator_steps + 1) < self.config.n_discriminator_steps:
+                    self.phase = Phase.D
+                else:
+                    self.phase = Phase.G
+                
+                # Get active models and optimizers based on phase
+                if self.phase == Phase.D:
+                    active_models = [self.discriminator]
+                    active_optimizer = self.discriminator_optimizer
+                else:  # Phase.G
+                    active_models = [self.unet] if self.unet is not None else [self.transformer]
+                    active_optimizer = self.optimizer
+                
+                with self.accelerator.accumulate(active_models):
                     bsz = prepared_batch["latents"].shape[0]
                     training_logger.debug("Sending latent batch to GPU.")
 
@@ -2898,8 +2922,10 @@ class Trainer:
                                 should_not_release_gradients
                             )
                         else:
-                            self.optimizer.step()
-                        self.optimizer.zero_grad(
+                        # AC is this logic right? the next two statements and indentation?
+                            active_optimizer.step()
+                        
+                        active_optimizer.zero_grad(
                             set_to_none=self.config.set_grads_to_none
                         )
 
@@ -3576,3 +3602,34 @@ class Trainer:
             if self.config.push_to_hub and self.accelerator.is_main_process:
                 self.hub_manager.upload_model(validation_images, self.webhook_handler)
         self.accelerator.end_training()
+    def init_adversarial_components(self):
+        """Initialize discriminator and its optimizer for adversarial training"""
+        logger.info("Initializing adversarial training components...")
+        
+        # Initialize discriminator
+        self.discriminator = FluxTransformer2DDiscriminator(
+            config=self.config,
+            # Add any required discriminator config parameters
+        )
+        
+        # Move discriminator to device
+        self.discriminator.to(
+            device=self.accelerator.device,
+            dtype=self.config.weight_dtype
+        )
+        
+        # AC: can we use similar code path as other optimizer? and use the defaults in helpers/training/optimizer_param.py. using adamwf16.
+        # Create optimizer for discriminator
+        self.discriminator_optimizer = torch.optim.AdamW(
+            self.discriminator.parameters(),
+            lr=self.config.discriminator_learning_rate,
+            betas=(self.config.adam_beta1, self.config.adam_beta2),
+            weight_decay=self.config.adam_weight_decay,
+            eps=self.config.adam_epsilon,
+        )
+        
+        # Prepare discriminator with accelerator
+        self.discriminator, self.discriminator_optimizer = self.accelerator.prepare(
+            self.discriminator, self.discriminator_optimizer
+        )
+
