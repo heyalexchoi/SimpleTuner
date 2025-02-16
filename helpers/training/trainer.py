@@ -57,12 +57,6 @@ from accelerate.logging import get_logger
 from diffusers.models.embeddings import get_2d_rotary_pos_embed
 from helpers.models.smoldit import get_resize_crop_region_for_grid
 
-from typing import Dict, Any, Union
-from helpers.adversarial.training import trainer as adversarial_trainer
-from enum import Enum
-from helpers.adversarial.core.network.transformer_D import FluxTransformer2DDiscriminator
-from helpers.adversarial.training.trainer import Phase
-
 logger = get_logger(
     "SimpleTuner", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
 )
@@ -191,15 +185,6 @@ class Trainer:
         self.controlnet = None
         self.ema_model = None
         self.validation = None
-        
-        # AC: any reason why this is isn't in the init adversarial components method?
-        # Initialize adversarial training components
-        self.discriminator = None
-        self.discriminator_optimizer = None
-        self.phase = Phase.G  # Start with generator phase
-        
-        if config.get("enable_adversarial_training"):
-            self.init_adversarial_components()
 
     def _config_to_obj(self, config):
         if not config:
@@ -2343,7 +2328,7 @@ class Trainer:
 
         return max_grad_value
 
-    def prepare_batch(self, batch: list) -> Union[Dict[str, Any], bool]:
+    def prepare_batch(self, batch: dict):
         """
         Prepare a batch for the model prediction.
 
@@ -2567,7 +2552,7 @@ class Trainer:
         model_pred,
         target,
         apply_conditioning_mask: bool = True,
-    ):
+    ) -> torch.Tensor:
         # Compute the per-pixel loss without reducing over spatial dimensions
         if self.config.flow_matching:
             # For flow matching, compute the per-pixel squared differences
@@ -2738,7 +2723,6 @@ class Trainer:
                 step += 1
                 prepared_batch = self.prepare_batch(iterator_fn(step, *iterator_args))
                 training_logger.debug(f"Iterator: {iterator_fn}")
-                training_logger.debug(f"Step: {step} Phase: {phase}")
                 if self.config.lr_scheduler == "cosine_with_restarts":
                     self.extra_lr_scheduler_kwargs["step"] = self.state["global_step"]
 
@@ -2763,22 +2747,7 @@ class Trainer:
                 if "batch_luminance" in prepared_batch:
                     training_luminance_values.append(prepared_batch["batch_luminance"])
 
-                # AC: does this take into account gradient accumulation? do we want to determine n_discriminator_steps?
-                # Determine current phase
-                if step % (self.config.n_discriminator_steps + 1) < self.config.n_discriminator_steps:
-                    self.phase = Phase.D
-                else:
-                    self.phase = Phase.G
-                
-                # Get active models and optimizers based on phase
-                if self.phase == Phase.D:
-                    active_models = [self.discriminator]
-                    active_optimizer = self.discriminator_optimizer
-                else:  # Phase.G
-                    active_models = [self.unet] if self.unet is not None else [self.transformer]
-                    active_optimizer = self.optimizer
-                
-                with self.accelerator.accumulate(active_models):
+                with self.accelerator.accumulate(training_models):
                     bsz = prepared_batch["latents"].shape[0]
                     training_logger.debug("Sending latent batch to GPU.")
 
@@ -2803,8 +2772,6 @@ class Trainer:
                         f"Pooled embeds: {add_text_embeds.shape if add_text_embeds is not None else None}"
                     )
                     # Get the target for loss depending on the prediction type
-                    # usually for flux this is difference between noise and latents
-                    # for adversarial generator I suppose it would be the same
                     target = self.get_prediction_target(prepared_batch)
 
                     added_cond_kwargs = prepared_batch.get("added_cond_kwargs")
@@ -2838,24 +2805,12 @@ class Trainer:
                                     1.0
                                 )
 
-                    # training_logger.debug("Predicting noise residual.")
-                    # model_pred = self.model_predict(
-                    #     prepared_batch=prepared_batch,
-                    # )
-                    # loss = self._calculate_loss(
-                    #     prepared_batch, model_pred, target, apply_conditioning_mask=True
-                    # )
-                    assert isinstance(prepared_batch, dict)
-
-                    model_pred = adversarial_trainer.model_predict(
-                        trainer=self,
+                    training_logger.debug("Predicting noise residual.")
+                    model_pred = self.model_predict(
                         prepared_batch=prepared_batch,
                     )
-                    loss = adversarial_trainer.calculate_loss(
-                        trainer=self,
-                        prepared_batch=prepared_batch,
-                        model_pred=model_pred,
-                        target=target,
+                    loss = self._calculate_loss(
+                        prepared_batch, model_pred, target, apply_conditioning_mask=True
                     )
 
                     parent_loss = None
@@ -2922,10 +2877,8 @@ class Trainer:
                                 should_not_release_gradients
                             )
                         else:
-                        # AC is this logic right? the next two statements and indentation?
-                            active_optimizer.step()
-                        
-                        active_optimizer.zero_grad(
+                            self.optimizer.step()
+                        self.optimizer.zero_grad(
                             set_to_none=self.config.set_grads_to_none
                         )
 
@@ -2946,12 +2899,9 @@ class Trainer:
                         logger.error(
                             f"Failed to get the last learning rate from the scheduler. Error: {e}"
                         )
-                    
-                    loss_label = "generator_loss" if self.phase == adversarial_trainer.Phase.G else "discriminator_loss"
-                    # TODO: add my new losses and metrics
                     wandb_logs.update(
                         {
-                            loss_label: self.train_loss,
+                            "train_loss": self.train_loss,
                             "optimization_loss": loss,
                             "learning_rate": self.lr,
                             "epoch": epoch,
@@ -3602,34 +3552,3 @@ class Trainer:
             if self.config.push_to_hub and self.accelerator.is_main_process:
                 self.hub_manager.upload_model(validation_images, self.webhook_handler)
         self.accelerator.end_training()
-    def init_adversarial_components(self):
-        """Initialize discriminator and its optimizer for adversarial training"""
-        logger.info("Initializing adversarial training components...")
-        
-        # Initialize discriminator
-        self.discriminator = FluxTransformer2DDiscriminator(
-            config=self.config,
-            # Add any required discriminator config parameters
-        )
-        
-        # Move discriminator to device
-        self.discriminator.to(
-            device=self.accelerator.device,
-            dtype=self.config.weight_dtype
-        )
-        
-        # AC: can we use similar code path as other optimizer? and use the defaults in helpers/training/optimizer_param.py. using adamwf16.
-        # Create optimizer for discriminator
-        self.discriminator_optimizer = torch.optim.AdamW(
-            self.discriminator.parameters(),
-            lr=self.config.discriminator_learning_rate,
-            betas=(self.config.adam_beta1, self.config.adam_beta2),
-            weight_decay=self.config.adam_weight_decay,
-            eps=self.config.adam_epsilon,
-        )
-        
-        # Prepare discriminator with accelerator
-        self.discriminator, self.discriminator_optimizer = self.accelerator.prepare(
-            self.discriminator, self.discriminator_optimizer
-        )
-
