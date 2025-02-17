@@ -111,6 +111,10 @@ class FluxTransformer2DDiscriminator(nn.Module):
         super().__init__()
         self.transformer = transformer
         
+        # Freeze transformer parameters
+        for param in self.transformer.parameters():
+            param.requires_grad = False
+        
         self.hooks = []
         # NOTE: Flux dev transformer has 57 blocks. 19 dual stream and 38 single stream.
         # since I want block indexes 0, 14, 28, 42, 56 and flux dev refers to the dual and single stream blocks separately

@@ -19,38 +19,20 @@ from tqdm import tqdm
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 
+from .mixins.protocols import TrainerProtocol
+
 logger = get_logger(
-    "SimpleTuner", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
+    "SimpleTuner.AdversarialTrainer", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
 )
 
-filelock_logger = get_logger("filelock")
-connection_logger = get_logger("urllib3.connectionpool")
-training_logger = get_logger("training-loop")
-
-# More important logs.
-target_level = os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
-logger.setLevel(target_level)
-training_logger_level = os.environ.get("SIMPLETUNER_TRAINING_LOOP_LOG_LEVEL", "INFO")
-training_logger.setLevel(training_logger_level)
-
-# Less important logs.
-filelock_logger.setLevel("WARNING")
-connection_logger.setLevel("WARNING")
-
-class AdversarialTrainer(Trainer):
+class AdversarialTrainerMixin(TrainerProtocol):
     """
-    Trainer subclass for Flux adversarial training with LyCORIS/LOKR adapter.
-    This subclass removes extra non-Flux, controlnet, EMA, and standard LoRA logic,
-    retaining feature extraction methods (e.g. VAE & text encoders), checkpointing,
-    data backend handling, multi-GPU support via Accelerate and adversarial loss computation.
-    
-    NOTE: Regularisation data handling (e.g. detaching/re-attaching adapters) has been removed.
+    Trainer mixin for Flux adversarial training with LyCORIS/LOKR adapter.
+
     TODO: Insert prediction target generation via get_prediction_target() if needed.
     """
 
-    accelerator: Accelerator
     transformer: FluxTransformer2DModel
-    optimizer: Optimizer
     discriminator: FluxTransformer2DDiscriminator
     discriminator_optimizer: Optimizer
     phase: Phase
@@ -58,87 +40,28 @@ class AdversarialTrainer(Trainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.init_adversarial_components()
+        self.train_loss = 0.0
+        self.timesteps_buffer = []
 
-    def init_prepare_models(self, lr_scheduler):
-        """
-        Prepare generator (Flux transformer) for adversarial training.
-        This method strips out controlnet and unet logic and only loads the transformer.
-        It also loads the dataloader(s) from the data backend.
-        """
-        logger.info("Preparing models for adversarial training...")
+    # [x] hooked load discriminator into init_load_base_model w/ transformer init
+    # [x] need to init discriminator optimizer
+    # [x] hooked accelerator prepare discriminator and discriminator optimizer in init_prepare_models
+    # [x] all under config.use_adversarial_loss
 
-        # Setup train dataloaders from data backends
-        self.train_dataloaders = []
-        from helpers.training.state_tracker import StateTracker  # assumed to exist
-        for _, backend in StateTracker.get_data_backends().items():
-            if "train_dataloader" in backend:
-                self.train_dataloaders.append(backend["train_dataloader"])
-                break
-        if len(self.train_dataloaders) == 0:
-            logger.error("No dataloaders were configured.")
-            sys.exit(0)
+    # [ ] load checkpoint
+    # [ ] save checkpoint
+    # likely these two are taken care of with accelerator save and load state
 
-        if self.config.disable_accelerator:
-            logger.warning("Accelerator disabled. Skipping model preparation.")
-            return
-
-        logger.info("Initializing accelerator and moving weights to GPU...")
-        if torch.backends.mps.is_available():
-            self.accelerator.native_amp = False
-
-        # We always use the transformer for Flux (generator)
-        primary_model = self.transformer
-        # We deliberately skip any controlnet or unet branches.
-        results = self.accelerator.prepare(
-            primary_model, lr_scheduler, self.optimizer, self.train_dataloaders[0]
+    def load_discriminator(self, config):
+        return FluxTransformer2DDiscriminator(
+            transformer=self.transformer,
         )
-        self.transformer = results[0]
-        self.lr_scheduler = results[1]
-        self.optimizer = results[2]
-        # The rest of the entries are dataloaders:
-        self.train_dataloaders = [results[3:]]
-        logger.info("Model preparation complete.")
-
-    def resume_and_prepare(self):
-        """
-        Initialize optimizer, lr scheduler, hooks, prepare models, resume checkpoint and do post-load freezing.
-        This has been modified to eventually handle checkpoint states for both generator and discriminator.
-        """
-        self.init_optimizer()
-        lr_scheduler = self.init_lr_scheduler()
-        self.init_hooks()
-        self.init_prepare_models(lr_scheduler=lr_scheduler)
-        # Adjust lr_scheduler state with checkpoint if available.
-        lr_scheduler = self.init_resume_checkpoint(lr_scheduler=lr_scheduler)
-        self.init_post_load_freeze()
-
-    def init_adversarial_components(self):
-        """
-        Initialize discriminator and its optimizer for adversarial training.
-        """
-        logger.info("Initializing adversarial training components...")
-        # Initialize discriminator (Flux transformer based discriminator)
-        self.discriminator = FluxTransformer2DDiscriminator(
-            config=self.config,
-            # TODO: Add any additional parameters if needed
-        )
-        self.discriminator.to(
-            device=self.accelerator.device,
-            dtype=self.config.weight_dtype
-        )
-        self.discriminator_optimizer = AdamW(
-            self.discriminator.parameters(),
-            lr=self.config.discriminator_learning_rate,
-            betas=(self.config.adam_beta1, self.config.adam_beta2),
-            weight_decay=self.config.adam_weight_decay,
-            eps=self.config.adam_epsilon,
-        )
-        # Prepare discriminator with accelerator
-        self.discriminator, self.discriminator_optimizer = self.accelerator.prepare(
-            self.discriminator, self.discriminator_optimizer
-        )
+    
+    def determine_adversarial_params_to_optimize(self):
+        return [param for param in self.discriminator.parameters() if param.requires_grad]
 
     def train(self):
+        """Main training loop that orchestrates the training process"""
         self.init_trackers()
         self._train_initial_msg()
         self.mark_optimizer_train()
@@ -159,7 +82,7 @@ class AdversarialTrainer(Trainer):
         )
         self.accelerator.wait_for_everyone()
 
-        # Some values that are required to be initialised later.
+        # Initialize training state
         step = self.state["global_step"]
         training_luminance_values = []
         current_epoch_step = None
@@ -178,6 +101,7 @@ class AdversarialTrainer(Trainer):
                     f"Training run is complete ({self.config.num_train_epochs}/{self.config.num_train_epochs} epochs, {self.state['global_step']}/{self.config.max_train_steps} steps)."
                 )
                 break
+
             self._epoch_rollover(epoch)
 
             # removed controlnet and unet logic
@@ -218,6 +142,7 @@ class AdversarialTrainer(Trainer):
             while True:
                 self._exit_on_signal()
                 step += 1
+                
                 prepared_batch = self.prepare_batch(iterator_fn(step, *iterator_args))
                 
                 training_logger.debug(f"Iterator: {iterator_fn}")

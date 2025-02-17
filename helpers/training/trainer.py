@@ -126,6 +126,8 @@ from helpers.models.flux import (
     apply_flow_schedule_shift,
 )
 
+from helpers.adversarial.training.adversarial_trainer import AdversarialTrainerMixin
+
 is_optimi_available = False
 try:
     from optimi import prepare_for_gradient_release
@@ -154,7 +156,7 @@ transformers.utils.logging.set_verbosity_warning()
 diffusers.utils.logging.set_verbosity_warning()
 
 
-class Trainer:
+class Trainer(AdversarialTrainerMixin):
     def __init__(
         self,
         config: dict = None,
@@ -636,6 +638,9 @@ class Trainer:
         self.unet, self.transformer = load_diffusion_model(
             self.config, self.config.weight_dtype
         )
+        if self.config.use_adversarial_loss:
+            self.discriminator = self.load_discriminator(self.config)
+
         self.accelerator.wait_for_everyone()
         self._send_webhook_raw(
             structured_data={"message": "Base model has loaded."},
@@ -1221,6 +1226,18 @@ class Trainer:
                 offload_gradients=self.config.optimizer_offload_gradients,
                 offload_mechanism=self.config.optimizer_cpu_offload_method,
             )
+            if self.config.use_adversarial_loss:
+                # set up discriminator optimizer same as generator, but w/ unfrozen discriminator parameters
+                adversarial_params_to_optimize = self.determine_adversarial_params_to_optimize()
+                # add discriminator parameters to the ivar list of parameters to optimize
+                self.params_to_optimize.extend(adversarial_params_to_optimize)
+                self.discriminator_optimizer = cpu_offload_optimizer(
+                    params_to_optimize=adversarial_params_to_optimize,
+                    optimizer_cls=optimizer_class,
+                    optimizer_parameters=extra_optimizer_args,
+                    fused=self.config.fuse_optimizer,
+                    offload_gradients=self.config.optimizer_offload_gradients,
+                )
 
         if (
             is_optimi_available
@@ -1429,6 +1446,11 @@ class Trainer:
             self.text_encoder_1, self.text_encoder_2 = self.accelerator.prepare(
                 self.text_encoder_1, self.text_encoder_2
             )
+
+        if self.config.use_adversarial_loss:
+            self.discriminator = self.accelerator.prepare(self.discriminator)
+            self.discriminator_optimizer = self.accelerator.prepare(self.discriminator_optimizer)
+
         self._recalculate_training_steps()
         self.accelerator.wait_for_everyone()
         self._send_webhook_raw(
