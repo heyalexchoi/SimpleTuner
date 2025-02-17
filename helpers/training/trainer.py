@@ -1,4 +1,5 @@
 import logging, os
+from re import T
 import huggingface_hub
 from helpers.training.default_settings.safety_check import safety_check
 from helpers.publishing.huggingface import HubManager
@@ -126,7 +127,7 @@ from helpers.models.flux import (
     apply_flow_schedule_shift,
 )
 
-from helpers.adversarial.training.adversarial_trainer import AdversarialTrainerMixin
+from helpers.adversarial.training.adversarial_trainer import AdversarialTrainerMixin, Phase
 
 is_optimi_available = False
 try:
@@ -164,6 +165,7 @@ class Trainer(AdversarialTrainerMixin):
         job_id: str = None,
         exit_on_error: bool = False,
     ):
+        super().__init__()
         self.accelerator = None
         self.job_id = job_id
         StateTracker.set_job_id(job_id)
@@ -1097,6 +1099,9 @@ class Trainer(AdversarialTrainerMixin):
 
     def _get_trainable_parameters(self):
         # Return just a list of the currently trainable parameters.
+        if self.config.use_adversarial_loss and self.phase == Phase.D:
+            return self._get_discriminator_trainable_parameters()
+        
         if self.config.model_type == "lora":
             if self.config.lora_type == "lycoris":
                 return self.lycoris_wrapped_network.parameters()
@@ -2769,6 +2774,10 @@ class Trainer(AdversarialTrainerMixin):
                 if "batch_luminance" in prepared_batch:
                     training_luminance_values.append(prepared_batch["batch_luminance"])
 
+                if self.config.use_adversarial_loss:
+                    self.adversarial_step_will_begin()
+                    training_models = self.get_training_models()
+
                 with self.accelerator.accumulate(training_models):
                     bsz = prepared_batch["latents"].shape[0]
                     training_logger.debug("Sending latent batch to GPU.")
@@ -2929,6 +2938,9 @@ class Trainer(AdversarialTrainerMixin):
                             "epoch": epoch,
                         }
                     )
+                    if self.config.use_adversarial_loss:
+                        wandb_logs.update(self.get_step_logs())
+
                     if parent_loss is not None:
                         wandb_logs["regularisation_loss"] = parent_loss
                     if self.config.model_family == "flux" and self.guidance_values_list:
@@ -3169,6 +3181,10 @@ class Trainer(AdversarialTrainerMixin):
                             logger.error(
                                 f"Error uploading to hub: {e}, continuing training."
                             )
+
+                if self.config.use_adversarial_loss:
+                    self.adversarial_step_will_end()
+
                 self.accelerator.wait_for_everyone()
 
                 if self.state["global_step"] >= self.config.max_train_steps or (
