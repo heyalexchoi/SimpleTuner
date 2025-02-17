@@ -48,6 +48,18 @@ class AdversarialTrainerMixin(TrainerProtocol):
         super().__init__(*args, **kwargs)
         self.phase = Phase.G
 
+
+    # [ ] may need to detach the lycoris when using discriminator transformer. looks like they set the multiplier to zero in some cases where they want to deactivate it? then set back to 1 after predict.
+    # [ ] hook into model predict, get_prediction_target, and calculate loss
+    # - model predict I can probably actually just keep as is. both G and D use G prediction, right? not sure about D phase. is that 50/50 split?
+    # - should be able to insert D prediction during G phase
+    # - and ... tbd on D phase.
+    # [ ] does discriminator phase alternate between using G prediction and just using training data? hows that work
+    # - once we have loss, seems everything else should be the same
+    # [ ] I refer to discriminator and generator loss in the logs so i need to set those values
+    # [ ] make sure config supports my new use_adversarial_loss option
+    
+
     # [x] hooked load discriminator into init_load_base_model w/ transformer init
     # [x] need to init discriminator optimizer
     # [x] hooked accelerator prepare discriminator and discriminator optimizer in init_prepare_models
@@ -65,17 +77,10 @@ class AdversarialTrainerMixin(TrainerProtocol):
 
     # [x ] need to hook into _get_trainable_parameters()? used in grad norm clip
     # [ x] hook into mark_optimizer_eval and mark_optimizer_train which seems to turn off optimizer for evals?
-    # [ ] verify training_models refers to transformer and this includes for lycoris
-    # [ ] init_freeze_models freezes the transformer when training lora (requires_grad_(False))
-    # [ ] hook into model predict, get_prediction_target, and calculate loss
-    # - model predict I can probably actually just keep as is. both G and D use G prediction, right? not sure about D phase. is that 50/50 split?
-    # - should be able to insert D prediction during G phase
-    # - and ... tbd on D phase.
-    # [ ] does discriminator phase alternate between using G prediction and just using training data? hows that work
-    # - once we have loss, seems everything else should be the same
-    # [ ] I refer to discriminator and generator loss in the logs so i need to set those values
-    # [ ] make sure config supports my new use_adversarial_loss option
-    
+    # [x ] do i need to "move" the discriminator to device w/ dtype? doesnt seem like it. accelerate is configured already and will handle that
+    # [x ] verify training_models refers to transformer and this includes for lycoris. seems like once lycoris is init w/ model and called apply_to, it becomes part of model
+    # [x ] init_freeze_models freezes the transformer when training lora (requires_grad_(False))
+   
     def load_discriminator(self, config):
         return FluxTransformer2DDiscriminator(
             transformer=self.transformer,
@@ -123,6 +128,7 @@ class AdversarialTrainerMixin(TrainerProtocol):
     def adversarial_training_will_begin(self):
         # keep this reference since we will be swapping self.optimizer each phase
         self.generator_optimizer = self.optimizer
+        self.transformer.requires_grad_(False)
         self.discriminator.train()
 
     def adversarial_step_will_begin(self):
