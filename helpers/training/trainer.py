@@ -1233,7 +1233,7 @@ class Trainer(AdversarialTrainerMixin):
             )
             if self.config.use_adversarial_loss:
                 # set up discriminator optimizer same as generator, but w/ unfrozen discriminator parameters
-                adversarial_params_to_optimize = self.determine_adversarial_params_to_optimize()
+                adversarial_params_to_optimize = self._get_discriminator_trainable_parameters()
                 # add discriminator parameters to the ivar list of parameters to optimize
                 self.params_to_optimize.extend(adversarial_params_to_optimize)
                 self.discriminator_optimizer = cpu_offload_optimizer(
@@ -1925,6 +1925,8 @@ class Trainer(AdversarialTrainerMixin):
             # we typically have to call train() on the optim for schedulefree.
             logger.debug("Setting optimiser into train() mode.")
             self.optimizer.train()
+            if self.config.use_adversarial_loss:
+                self.mark_adversarial_optimizers_train()
 
     def mark_optimizer_eval(self):
         if is_lr_schedulefree(self.config.optimizer) and hasattr(
@@ -1933,6 +1935,8 @@ class Trainer(AdversarialTrainerMixin):
             # we typically have to call eval() on the optim for schedulefree before saving or running validations.
             logger.debug("Setting optimiser into eval() mode.")
             self.optimizer.eval()
+            if self.config.use_adversarial_loss:
+                self.mark_adversarial_optimizers_eval()
 
     def _send_webhook_msg(
         self, message: str, message_level: str = "info", store_response: bool = False
@@ -2656,6 +2660,10 @@ class Trainer(AdversarialTrainerMixin):
         self._train_initial_msg()
         self.mark_optimizer_train()
 
+        if self.config.use_adversarial_loss:
+            self.adversarial_training_will_begin()
+
+
         # Only show the progress bar once on each machine.
         show_progress_bar = True
         if not self.accelerator.is_local_main_process:
@@ -2708,7 +2716,7 @@ class Trainer(AdversarialTrainerMixin):
                 self.text_encoder_2.train()
                 training_models.append(self.text_encoder_1)
                 training_models.append(self.text_encoder_2)
-
+                
             if current_epoch_step is not None:
                 # We are resetting to the next epoch, if it is not none.
                 current_epoch_step = 0

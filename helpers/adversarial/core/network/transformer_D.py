@@ -112,8 +112,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
         self.transformer = transformer
         
         # Freeze transformer parameters
-        for param in self.transformer.parameters():
-            param.requires_grad = False
+        self.transformer.requires_grad_(False)
         
         self.hooks = []
         # NOTE: Flux dev transformer has 57 blocks. 19 dual stream and 38 single stream.
@@ -128,7 +127,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
         # Storage for features
         self.features = []
         
-        # hook appends module output into self.features
+        # hook appends module output into self.features. should be lightweight reference.
         def extract_features_hook(module, input, output):
             self.features.append(output)
             # apparently pytorch hooks can replace the forward output

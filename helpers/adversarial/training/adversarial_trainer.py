@@ -28,13 +28,21 @@ class AdversarialTrainerMixin(TrainerProtocol):
     """
     Trainer mixin for Flux adversarial training with LyCORIS/LOKR adapter.
 
+    Enable with config.use_adversarial_loss = True
+
+    Behavior outside of flux lycoris / lokr is undefined.
+    Deepspeed training not implemented.
+
     TODO: Insert prediction target generation via get_prediction_target() if needed.
     """
 
     transformer: FluxTransformer2DModel
     discriminator: FluxTransformer2DDiscriminator
+    generator_optimizer: Optimizer
     discriminator_optimizer: Optimizer
     phase: Phase
+    discriminator_loss: float
+    generator_loss: float
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,27 +56,31 @@ class AdversarialTrainerMixin(TrainerProtocol):
     # [x ] load checkpoint
     # [x ] save checkpoint
     # likely these two are taken care of with accelerator save and load state
-
-    # [ ] discriminator.train()
     # [x ] training_models = [self.discriminator]
-    # [ ] set / switch optimizer for step? looks like optimizer step is based on self.optimizer. I could put reference to first transformer in another ivar and switch between the two
+    # [x ] save discriminator weights? there's stage at end where model is unwrapped and saved in diffusers format? not sure if this matters. no it doesn't bc i won't use discriminator in diffusrs pipeline
+
+    # [x ] discriminator.train()
+    # [x ] seems like self.lycoris_wrapped_network is the lycoris weights. _get_trainable_parameters() refers to lycoris weights when not in D phase.
+    # [ x] set / switch optimizer for step? looks like optimizer step is based on self.optimizer. I could put reference to first transformer in another ivar and switch between the two
 
     # [x ] need to hook into _get_trainable_parameters()? used in grad norm clip
-    # [ ] hook into mark_optimizer_eval and mark_optimizer_train which seems to turn off optimizer for evals?
+    # [ x] hook into mark_optimizer_eval and mark_optimizer_train which seems to turn off optimizer for evals?
     # [ ] verify training_models refers to transformer and this includes for lycoris
     # [ ] init_freeze_models freezes the transformer when training lora (requires_grad_(False))
-    # [ ] hook into model predict and calculate loss
+    # [ ] hook into model predict, get_prediction_target, and calculate loss
+    # - model predict I can probably actually just keep as is. both G and D use G prediction, right? not sure about D phase. is that 50/50 split?
+    # - should be able to insert D prediction during G phase
+    # - and ... tbd on D phase.
+    # [ ] does discriminator phase alternate between using G prediction and just using training data? hows that work
     # - once we have loss, seems everything else should be the same
     # [ ] I refer to discriminator and generator loss in the logs so i need to set those values
-    # [x ] save discriminator weights? there's stage at end where model is unwrapped and saved in diffusers format? not sure if this matters. no it doesn't bc i won't use discriminator in diffusrs pipeline
+    # [ ] make sure config supports my new use_adversarial_loss option
+    
     def load_discriminator(self, config):
         return FluxTransformer2DDiscriminator(
             transformer=self.transformer,
         )
     
-    def determine_adversarial_params_to_optimize(self):
-        return [param for param in self.discriminator.parameters() if param.requires_grad]
-
     def get_training_models(self):
         """
         Returns list of models currently being trained
@@ -87,13 +99,42 @@ class AdversarialTrainerMixin(TrainerProtocol):
     
     def _get_discriminator_trainable_parameters(self):
         """
-        fork from trainer._get_trainable_parameters()
-        which seems to correspond to parameters of currently training_models
+        Returns parameters of discriminator heads, excluding transformer parameters
         """
-        return self.discriminator.parameters()
+        return self.discriminator.heads.parameters()
     
+    # these are behind checks for hasattr 'eval' and 'train'
+    def mark_adversarial_optimizers_train(self):
+        self.generator_optimizer.train() # type: ignore
+        self.discriminator_optimizer.train() # type: ignore
+
+    def mark_adversarial_optimizers_eval(self):
+        self.generator_optimizer.eval() # type: ignore
+        self.discriminator_optimizer.eval() # type: ignore
+
+    def freeze_discriminator_trainable_parameters(self):
+        for param in self._get_discriminator_trainable_parameters():
+            param.requires_grad = False
+
+    def freeze_lycoris_parameters(self):
+        for param in self.lycoris_wrapped_network.parameters():
+            param.requires_grad = False
+
+    def adversarial_training_will_begin(self):
+        # keep this reference since we will be swapping self.optimizer each phase
+        self.generator_optimizer = self.optimizer
+        self.discriminator.train()
+
     def adversarial_step_will_begin(self):
-        pass
+        if self.phase == Phase.G:
+            self.freeze_discriminator_trainable_parameters()
+            self.optimizer = self.generator_optimizer
+        else:
+            self.freeze_lycoris_parameters()
+            self.optimizer = self.discriminator_optimizer
+        
+        for param in self._get_trainable_parameters():
+            param.requires_grad = True
     
     def adversarial_step_will_end(self):
         if self.phase == Phase.G:
