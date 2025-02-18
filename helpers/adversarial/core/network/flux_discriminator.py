@@ -168,35 +168,39 @@ class FluxTransformer2DDiscriminator(nn.Module):
         
     """
     these two can be gotten from pipeline.prepare_latents:
-    latents is initial noise
+    hidden_states should be packed, noised image latents / noise
     latent_image_ids is Tensor of shape (num_patches, 3) that assigns XY coordinates to each image patch.
 
-    timesteps should be float between 0 and 1
+    timesteps should tensor of floats between 0 and 1
+
+    training seems to mostly use default guidance_scale 1.0
+
+    guidance_scale is a float that gets expanded into a tensor of shape (batch_size,)
 
     these three can be gotten from pipelin encode_prompt:
-    prompt_embeds is t5 prompt embedding
-    pooled_prompt_embeds is CLIP pooled prompt embedding
+    encoder_hidden_states is t5 prompt embedding
+    pooled_projections is CLIP pooled prompt embedding
     text_ids is a bunch of zeros, it seems.
 
     """
-    def forward(self, latents, timesteps, prompt_embeds, 
-                pooled_prompt_embeds, text_ids, latent_image_ids,
-                guidance_scale=3.5,
+    def forward(self, hidden_states, timesteps, encoder_hidden_states, 
+                pooled_projections, text_ids, img_ids,
+                guidance_scale: float,
                 joint_attention_kwargs=None, added_cond_kwargs={}):
         # Clear features from previous forward passes
         self.features = []
 
         guidance = torch.full([1], guidance_scale) # in diffusers this was dtype fp32
-        guidance = guidance.expand(latents.shape[0])
+        guidance = guidance.expand(hidden_states.shape[0])
         
         # we have a hook that extracts the features
         self.transformer.forward(
-            hidden_states=latents,
-            encoder_hidden_states=prompt_embeds,
-            pooled_projections=pooled_prompt_embeds,
-            timestep=timesteps, # may need to be divided by 1000. depending
+            hidden_states=hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            pooled_projections=pooled_projections,
+            timestep=timesteps,
             txt_ids=text_ids,
-            img_ids=latent_image_ids,
+            img_ids=img_ids,
             guidance=guidance,
             joint_attention_kwargs=joint_attention_kwargs,
             *added_cond_kwargs

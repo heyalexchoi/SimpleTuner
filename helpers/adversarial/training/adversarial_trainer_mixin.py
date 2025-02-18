@@ -6,7 +6,7 @@ import logging
 
 from enum import Enum
 from diffusers.models.transformers import FluxTransformer2DModel  # assuming this is the generator model
-from helpers.adversarial.core.network.transformer_D import FluxTransformer2DDiscriminator
+from helpers.adversarial.core.network.flux_discriminator import FluxTransformer2DDiscriminator
 from helpers.adversarial.training.helpers import (
     Phase,
     calculate_loss,  # contains calculate_generator_loss & calculate_discriminator_loss helpers with TODOs
@@ -18,13 +18,14 @@ from tqdm import tqdm
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 
-from .mixins.protocols import TrainerProtocol
+from .mixins.protocols import AdversarialTrainerProtocol
+from .mixins.loss import AdversarialLossMixin
 
 logger = get_logger(
     "SimpleTuner.AdversarialTrainer", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
 )
 
-class AdversarialTrainerMixin(TrainerProtocol):
+class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
     """
     Trainer mixin for Flux adversarial training with LyCORIS/LOKR adapter.
 
@@ -36,13 +37,7 @@ class AdversarialTrainerMixin(TrainerProtocol):
     TODO: Insert prediction target generation via get_prediction_target() if needed.
     """
 
-    transformer: FluxTransformer2DModel
-    discriminator: FluxTransformer2DDiscriminator
-    generator_optimizer: Optimizer
-    discriminator_optimizer: Optimizer
-    phase: Phase
-    discriminator_loss: float
-    generator_loss: float
+    
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

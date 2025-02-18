@@ -127,7 +127,7 @@ from helpers.models.flux import (
     apply_flow_schedule_shift,
 )
 
-from helpers.adversarial.training.adversarial_trainer import AdversarialTrainerMixin, Phase
+from helpers.adversarial.training.adversarial_trainer_mixin import AdversarialTrainerMixin, Phase
 
 is_optimi_available = False
 try:
@@ -2584,6 +2584,13 @@ class Trainer(AdversarialTrainerMixin):
         target,
         apply_conditioning_mask: bool = True,
     ) -> torch.Tensor:
+        
+        if self.config.use_adversarial_loss:
+            return self.calculate_adversarial_loss(
+                model_pred=model_pred,
+                prepared_batch=prepared_batch,
+            )
+
         # Compute the per-pixel loss without reducing over spatial dimensions
         if self.config.flow_matching:
             # For flow matching, compute the per-pixel squared differences
