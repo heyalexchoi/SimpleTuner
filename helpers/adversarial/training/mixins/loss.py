@@ -1,6 +1,6 @@
 import torch
 from .protocols import AdversarialTrainerProtocol
-from helpers.adversarial.training.helpers import Phase
+from helpers.adversarial.core.constants import Phase
 from helpers.models.flux import pack_latents, prepare_latent_image_ids
 
 class AdversarialLossMixin(AdversarialTrainerProtocol):
@@ -17,35 +17,34 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
             raise ValueError(f"Invalid phase: {self.phase}")
 
     
-    def calculate_generator_loss(self, prepared_batch, generator_prediction):
+    def calculate_generator_loss(self, prepared_batch: dict, unpacked_generator_predicted_noise: torch.Tensor):
         """
-        Makes discriminator prediction from generator prediction then calculates loss for generator
-        
+        Does the following:
+        - Takes in *unpacked* latents (to `unpacked_generator_predicted_noise`) from `trainer.model_predict`` corresponding to the generator's prediction
+            of noise to remove from batch's noised latents. These latents are unpacked in `trainer.model_predict` in preparation
+            for calculating L2 loss.
+        - Converts the noise prediction into "clean" image latent
+        - Repacks the latent to be processed by Flux transformer discriminator
+        - Gets prediction from Flux transformer discriminator. 
+            Batch timesteps are passed in with 'clean images' following Seaweed APT paper's use of "ensemble of different timestep values". 
+            Rest of batch data including text conditioning is also passed in.
+        - Calculates and returns loss for generator
+
+        Returns:
+            loss: Single tensor value representing generator loss
+
         From paper:
             The functions fD , fG , and gG are the output functions. 
             Here, we use the simple non-saturating variant [16]: fD(x) = gG(x) = log σ(x) 
             and fG(x) = log(1 − σ(x)), where σ(x) is the sigmoid function.
-
-        need generator prediction
-        turn into image latent
-
-        give that to discriminator with timesteps, conditioning, etc (prepared_batch)
-        get discriminator prediction
-
-        apply sigmoid and calculate log probabilities
-
-        
-        Args:
-            discriminator_outputs: Tensor of shape (batch_size, 1) 
-                                 containing discriminator predictions on generated samples
-        
-        Returns:
-            loss: Single tensor value representing generator loss
+                
         """
-        # copied from trainer.model_predict
-        # based on flux w/ guidance mode constant
-        packed_generator_prediction = pack_latents(
-                    latents=generator_prediction,
+        # convert to predicted "clean image" latent by inverting flow matching target
+        # target = prepared_batch["noise"] - prepared_batch["latents"]
+        predicted_clean_image_latent = prepared_batch["noise"] - unpacked_generator_predicted_noise 
+
+        packed_predicted_clean_image_latent = pack_latents(
+                    latents=predicted_clean_image_latent,
                     batch_size=prepared_batch["latents"].shape[0],
                     num_channels_latents=prepared_batch["latents"].shape[1],
                     height=prepared_batch["latents"].shape[2],
@@ -59,7 +58,7 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
        
         discriminator_outputs = self.discriminator.forward(
             **flux_transformer_kwargs,
-            hidden_states=packed_generator_prediction,
+            hidden_states=packed_predicted_clean_image_latent,
             guidance_scale=self.config.flux_guidance_value,
         )
         # Apply sigmoid to get probabilities

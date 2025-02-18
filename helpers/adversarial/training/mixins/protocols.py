@@ -2,8 +2,8 @@ from typing import Protocol, Any, Callable
 from accelerate import Accelerator
 from torch.optim import Optimizer
 from torch import nn
-from helpers.adversarial.training.helpers import Phase
-from diffusers.models.transformers import FluxTransformer2DModel  # assuming this is the generator model
+from helpers.adversarial.core.constants import Phase
+from diffusers.models.transformers.transformer_flux import FluxTransformer2DModel  # assuming this is the generator model
 from helpers.adversarial.core.network.flux_discriminator import FluxTransformer2DDiscriminator
 
 

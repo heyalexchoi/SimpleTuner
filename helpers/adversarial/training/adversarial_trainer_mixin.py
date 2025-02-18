@@ -5,12 +5,9 @@ from torch.optim.optimizer import Optimizer
 import logging
 
 from enum import Enum
-from diffusers.models.transformers import FluxTransformer2DModel  # assuming this is the generator model
+from diffusers.models.transformers.transformer_flux import FluxTransformer2DModel  # assuming this is the generator model
 from helpers.adversarial.core.network.flux_discriminator import FluxTransformer2DDiscriminator
-from helpers.adversarial.training.helpers import (
-    Phase,
-    calculate_loss,  # contains calculate_generator_loss & calculate_discriminator_loss helpers with TODOs
-)
+from helpers.adversarial.core.constants import Phase
 import os
 from helpers.data_backend.factory import random_dataloader_iterator
 from helpers.training.state_tracker import StateTracker
