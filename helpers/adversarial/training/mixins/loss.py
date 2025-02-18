@@ -44,11 +44,6 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         """
         # copied from trainer.model_predict
         # based on flux w/ guidance mode constant
-        
-        # remember that flux transformer prefers packed latents
-        # this includes flux discriminator
-        # probably want to pack the real images too
-        
         packed_generator_prediction = pack_latents(
                     latents=generator_prediction,
                     batch_size=prepared_batch["latents"].shape[0],
@@ -76,8 +71,94 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         
         return loss
     
-    def calculate_discriminator_loss(self, discriminator_outputs, prepared_batch) -> torch.Tensor:
-        return torch.tensor(0.0)
+    def calculate_discriminator_loss(self, prepared_batch, generator_prediction) -> torch.Tensor:
+        """
+        Compute the full discriminator loss including adversarial and R1 terms.
+
+        From Seaweed APT:
+        We propose an approximated R1 loss, written as:
+
+        ```
+        LaR1 = ‖D(x, c) - D(N(x, σI), c)‖²₂
+        ```
+
+        Specifically, we perturb the real data with Gaussian noise of small variance σ. 
+        The loss encourages the discriminator's predictions to be close between the real data 
+        and its perturbation, thereby reducing the discriminator gradient on real data and 
+        achieving a consistent objective as the original R1 regularization. 
+        Therefore, the final discriminator loss LD is defined as:
+
+        ```
+        LD = E[fD(D(x, c))] + E[fG(D(G(z, c), c))] + λ E[‖D(x, c) - D(N(x, σI), c)‖²₂]
+            x,c∼T        z∼N               x,c∼T
+                        c∼T
+        ```
+
+        In our experiments, we use λ = 100, σ = 0.01 for images and σ = 0.1 for videos. 
+        The generator and the discriminator are optimized in alternating steps, 
+        in which the approximated R1 is applied on every discriminator step.
+        """
+        # lambda_r1 (float): Coefficient for the approximated R1 regularization
+        # sigma (float): Standard deviation for Gaussian noise in approximated R1
+        lambda_r1 = 100.0
+        sigma = 0.01
+
+        # actually I should verify that the generator prediction (model_pred) is correct format for the discriminator transformer
+
+        # pack generator prediction latents for flux transformer
+        fake_samples = pack_latents(
+                    latents=generator_prediction,
+                    batch_size=prepared_batch["latents"].shape[0],
+                    num_channels_latents=prepared_batch["latents"].shape[1],
+                    height=prepared_batch["latents"].shape[2],
+                    width=prepared_batch["latents"].shape[3],
+                )
+        # pack real image latents for flux transformer
+        real_samples = pack_latents(
+            latents=prepared_batch["latents"],
+            batch_size=prepared_batch["latents"].shape[0],
+            num_channels_latents=prepared_batch["latents"].shape[1],
+            height=prepared_batch["latents"].shape[2],
+            width=prepared_batch["latents"].shape[3],
+        )
+        
+        extracted_flux_transformer_kwargs = self.extract_flux_transformer_kwargs(prepared_batch)
+        guidance_scale = self.config.flux_guidance_value
+
+        # Get discriminator predictions for real image and fake generated image
+        disc_real = self.discriminator(
+            **extracted_flux_transformer_kwargs,
+            hidden_states=real_samples,
+            guidance_scale=guidance_scale,
+        )
+        disc_fake = self.discriminator(
+            **extracted_flux_transformer_kwargs,
+            hidden_states=fake_samples,
+            guidance_scale=guidance_scale,
+        )
+        # Real loss: want D(real) -> 1
+        real_loss = -torch.mean(torch.log(torch.sigmoid(disc_real) + 1e-8))
+        
+        # Fake loss: want D(fake) -> 0 
+        fake_loss = -torch.mean(torch.log(1 - torch.sigmoid(disc_fake) + 1e-8))
+        
+        # R1 regularization approximation from seaweed APT
+        noise = torch.randn_like(real_samples) * sigma
+        noised_samples = real_samples + noise
+        with torch.no_grad():
+            noised_outputs = self.discriminator(
+                **extracted_flux_transformer_kwargs,
+                hidden_states=noised_samples,
+                guidance_scale=guidance_scale,
+                )
+        r1_penalty = torch.mean((disc_real - noised_outputs) ** 2)
+        
+        total_loss = real_loss + fake_loss + lambda_r1 * r1_penalty
+
+        # maybe stick some of these in a dictionary for logging
+        # can give adversarial trainer a separate attribute for logging
+        
+        return total_loss
 
 
     def extract_flux_transformer_kwargs(self, prepared_batch):
