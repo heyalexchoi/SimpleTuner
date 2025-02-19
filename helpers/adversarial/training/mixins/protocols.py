@@ -25,5 +25,4 @@ class AdversarialTrainerProtocol(TrainerProtocol):
     generator_optimizer: Optimizer
     discriminator_optimizer: Optimizer
     phase: Phase
-    discriminator_loss: float
-    generator_loss: float
+    current_step_loss_components: dict

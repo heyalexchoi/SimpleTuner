@@ -39,6 +39,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.phase = Phase.G
+        self.current_step_loss_components = {}
 
 
     # [ ] may need to detach the lycoris when using discriminator transformer. looks like they set the multiplier to zero in some cases where they want to deactivate it? then set back to 1 after predict.
@@ -90,8 +91,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         
     def get_step_logs(self):
         return {
-            "discriminator_loss": self.discriminator_loss,
-            "generator_loss": self.generator_loss,
+            **self.current_step_loss_components,
         }
     
     def _get_discriminator_trainable_parameters(self):
@@ -135,6 +135,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             param.requires_grad = True
     
     def adversarial_step_will_end(self):
+        self.current_step_loss_components = {}
         if self.phase == Phase.G:
             self.phase = Phase.D
         else:

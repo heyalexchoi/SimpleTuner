@@ -16,6 +16,14 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         else:
             raise ValueError(f"Invalid phase: {self.phase}")
 
+    def convert_model_prediction_to_clean_image_latent(self, prepared_batch: dict, unpacked_generator_predicted_noise: torch.Tensor):
+        """
+        Converts the unpacked noise prediction into "clean" image latent
+        """
+        # convert to predicted "clean image" latent by inverting flow matching target
+        # target = prepared_batch["noise"] - prepared_batch["latents"]
+        predicted_clean_image_latent = prepared_batch["noise"] - unpacked_generator_predicted_noise 
+        return predicted_clean_image_latent
     
     def calculate_generator_loss(self, prepared_batch: dict, unpacked_generator_predicted_noise: torch.Tensor):
         """
@@ -41,7 +49,10 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         """
         # convert to predicted "clean image" latent by inverting flow matching target
         # target = prepared_batch["noise"] - prepared_batch["latents"]
-        predicted_clean_image_latent = prepared_batch["noise"] - unpacked_generator_predicted_noise 
+        predicted_clean_image_latent = self.convert_model_prediction_to_clean_image_latent(
+            prepared_batch=prepared_batch, 
+            unpacked_generator_predicted_noise=unpacked_generator_predicted_noise,
+            )
 
         packed_predicted_clean_image_latent = pack_latents(
                     latents=predicted_clean_image_latent,
@@ -68,9 +79,14 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         # We want to maximize log(D(G(z))) which is equivalent to minimizing -log(D(G(z)))
         loss = -torch.mean(torch.log(probs + 1e-8))  # Add small epsilon to prevent log(0)
         
+        # Store loss components for logging
+        self.current_step_loss_components.update({
+            "g_loss": loss.item(),
+        })
+        
         return loss
     
-    def calculate_discriminator_loss(self, prepared_batch, generator_prediction) -> torch.Tensor:
+    def calculate_discriminator_loss(self, prepared_batch: dict, unpacked_generator_predicted_noise: torch.Tensor) -> torch.Tensor:
         """
         Compute the full discriminator loss including adversarial and R1 terms.
 
@@ -102,11 +118,14 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         lambda_r1 = 100.0
         sigma = 0.01
 
-        # actually I should verify that the generator prediction (model_pred) is correct format for the discriminator transformer
+        predicted_clean_image_latent = self.convert_model_prediction_to_clean_image_latent(
+            prepared_batch=prepared_batch, 
+            unpacked_generator_predicted_noise=unpacked_generator_predicted_noise,
+            )
 
         # pack generator prediction latents for flux transformer
         fake_samples = pack_latents(
-                    latents=generator_prediction,
+                    latents=predicted_clean_image_latent,
                     batch_size=prepared_batch["latents"].shape[0],
                     num_channels_latents=prepared_batch["latents"].shape[1],
                     height=prepared_batch["latents"].shape[2],
@@ -154,8 +173,13 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         
         total_loss = real_loss + fake_loss + lambda_r1 * r1_penalty
 
-        # maybe stick some of these in a dictionary for logging
-        # can give adversarial trainer a separate attribute for logging
+        # Store loss components for logging
+        self.current_step_loss_components.update({
+            "d_real_loss": real_loss.item(),
+            "d_fake_loss": fake_loss.item(),
+            "d_r1_penalty": r1_penalty.item(),
+            "d_total_loss": total_loss.item()
+        })
         
         return total_loss
 
