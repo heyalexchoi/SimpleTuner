@@ -2188,7 +2188,21 @@ def get_argument_parser():
             "Clear the cache from VRAM every X steps. This can help prevent memory leaks, but may slow down training."
         ),
     )
-
+    parser.add_argument(
+        "--use_adversarial_loss",
+        action="store_true",
+        help=(
+            "Enable adversarial training."
+        ),
+    )
+    parser.add_argument(
+        "--discriminator_learning_rate",
+        type=float,
+        default=None,
+        help=(
+            "The learning rate for the discriminator."
+        ),
+    )
     return parser
 
 

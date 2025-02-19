@@ -7,6 +7,9 @@ import torch
 from torch.nn.utils.spectral_norm import SpectralNorm
 import numpy as np
 
+from helpers.adversarial.core.logging import get_adversarial_logger
+
+logger = get_adversarial_logger()
 
 class ResidualBlock(nn.Module):
     def __init__(self, fn: Callable):
@@ -113,6 +116,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
         
         # Freeze transformer parameters
         self.transformer.requires_grad_(False)
+        assert not any(p.requires_grad for p in self.transformer.parameters()), "Transformer must be frozen"
         
         self.hooks = []
         # NOTE: Flux dev transformer has 57 blocks. 19 dual stream and 38 single stream.
@@ -192,6 +196,9 @@ class FluxTransformer2DDiscriminator(nn.Module):
 
         guidance = torch.full([1], guidance_scale) # in diffusers this was dtype fp32
         guidance = guidance.expand(hidden_states.shape[0])
+
+        # verify transformer is frozen
+        assert not any(p.requires_grad for p in self.transformer.parameters()), "Transformer must be frozen"
         
         # we have a hook that extracts the features
         self.transformer.forward(

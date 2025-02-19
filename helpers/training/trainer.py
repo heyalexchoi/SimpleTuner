@@ -1239,9 +1239,13 @@ class Trainer(AdversarialTrainerMixin):
                 self.discriminator_optimizer = cpu_offload_optimizer(
                     params_to_optimize=adversarial_params_to_optimize,
                     optimizer_cls=optimizer_class,
-                    optimizer_parameters=extra_optimizer_args,
+                    optimizer_parameters={
+                        **extra_optimizer_args,
+                        "lr": self.config.discriminator_learning_rate,
+                    },
                     fused=self.config.fuse_optimizer,
                     offload_gradients=self.config.optimizer_offload_gradients,
+                    offload_mechanism=self.config.optimizer_cpu_offload_method,
                 )
 
         if (

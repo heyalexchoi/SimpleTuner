@@ -2,6 +2,10 @@ import torch
 from .protocols import AdversarialTrainerProtocol
 from helpers.adversarial.core.constants import Phase
 from helpers.models.flux import pack_latents, prepare_latent_image_ids
+from helpers.adversarial.core.logging import get_adversarial_logger
+from contextlib import contextmanager
+
+logger = get_adversarial_logger()
 
 class AdversarialLossMixin(AdversarialTrainerProtocol):
     
@@ -67,11 +71,12 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
 
         flux_transformer_kwargs = self.extract_flux_transformer_kwargs(prepared_batch)
        
-        discriminator_outputs = self.discriminator.forward(
-            **flux_transformer_kwargs,
-            hidden_states=packed_predicted_clean_image_latent,
-            guidance_scale=self.config.flux_guidance_value,
-        )
+        with self.temporarily_detach_lycoris():
+            discriminator_outputs = self.discriminator.forward(
+                **flux_transformer_kwargs,
+                hidden_states=packed_predicted_clean_image_latent,
+                guidance_scale=self.config.flux_guidance_value,
+            )
         # Apply sigmoid to get probabilities
         probs = torch.sigmoid(discriminator_outputs)
         
@@ -143,17 +148,18 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         extracted_flux_transformer_kwargs = self.extract_flux_transformer_kwargs(prepared_batch)
         guidance_scale = self.config.flux_guidance_value
 
-        # Get discriminator predictions for real image and fake generated image
-        disc_real = self.discriminator(
-            **extracted_flux_transformer_kwargs,
-            hidden_states=real_samples,
-            guidance_scale=guidance_scale,
-        )
-        disc_fake = self.discriminator(
-            **extracted_flux_transformer_kwargs,
-            hidden_states=fake_samples,
-            guidance_scale=guidance_scale,
-        )
+        with self.temporarily_detach_lycoris():
+            # Get discriminator predictions for real image and fake generated image
+            disc_real = self.discriminator(
+                **extracted_flux_transformer_kwargs,
+                hidden_states=real_samples,
+                guidance_scale=guidance_scale,
+            )
+            disc_fake = self.discriminator(
+                **extracted_flux_transformer_kwargs,
+                hidden_states=fake_samples,
+                guidance_scale=guidance_scale,
+            )
         # Real loss: want D(real) -> 1
         real_loss = -torch.mean(torch.log(torch.sigmoid(disc_real) + 1e-8))
         
@@ -163,7 +169,7 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         # R1 regularization approximation from seaweed APT
         noise = torch.randn_like(real_samples) * sigma
         noised_samples = real_samples + noise
-        with torch.no_grad():
+        with torch.no_grad(), self.temporarily_detach_lycoris():
             noised_outputs = self.discriminator(
                 **extracted_flux_transformer_kwargs,
                 hidden_states=noised_samples,
@@ -223,3 +229,22 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
             "encoder_hidden_states": encoder_hidden_states,
             "pooled_projections": pooled_projections,
         }
+    
+    @contextmanager
+    def temporarily_detach_lycoris(self):
+        """
+        Context manager for temporarily detaching LyCORIS adapter during operations.
+        The discriminator and generator share the same frozen flux transformer,
+        with the LyCORIS adapter serving as the generator-specific weights.
+        We want to detach the LyCORIS adapter during the discriminator forward pass.
+        """
+        if hasattr(self.accelerator, '_lycoris_wrapped_network'):
+            logger.debug("Detaching LyCORIS adapter.")
+            self.accelerator._lycoris_wrapped_network.set_multiplier(0.0)  # type: ignore
+        
+        try:
+            yield
+        finally:
+            if hasattr(self.accelerator, '_lycoris_wrapped_network'):
+                logger.debug("Re-attaching LyCORIS adapter.")
+                self.accelerator._lycoris_wrapped_network.set_multiplier(1.0)  # type: ignore

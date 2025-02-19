@@ -13,14 +13,12 @@ from helpers.data_backend.factory import random_dataloader_iterator
 from helpers.training.state_tracker import StateTracker
 from tqdm import tqdm
 from accelerate import Accelerator
-from accelerate.logging import get_logger
+from ..core.logging import get_adversarial_logger
 
 from .mixins.protocols import AdversarialTrainerProtocol
 from .mixins.loss import AdversarialLossMixin
 
-logger = get_logger(
-    "SimpleTuner.AdversarialTrainer", log_level=os.environ.get("SIMPLETUNER_LOG_LEVEL", "INFO")
-)
+logger = get_adversarial_logger()
 
 class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
     """
@@ -30,50 +28,13 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
 
     Behavior outside of flux lycoris / lokr is undefined.
     Deepspeed training not implemented.
-
-    TODO: Insert prediction target generation via get_prediction_target() if needed.
     """
-
-    
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.phase = Phase.G
         self.current_step_loss_components = {}
 
-
-    # [ ] may need to detach the lycoris when using discriminator transformer. looks like they set the multiplier to zero in some cases where they want to deactivate it? then set back to 1 after predict.
-    # [ ] hook into model predict, get_prediction_target, and calculate loss
-    # - model predict I can probably actually just keep as is. both G and D use G prediction, right? not sure about D phase. is that 50/50 split?
-    # - should be able to insert D prediction during G phase
-    # - and ... tbd on D phase.
-    # [ ] does discriminator phase alternate between using G prediction and just using training data? hows that work
-    # - once we have loss, seems everything else should be the same
-    # [ ] I refer to discriminator and generator loss in the logs so i need to set those values
-    # [ ] make sure config supports my new use_adversarial_loss option
-    
-
-    # [x] hooked load discriminator into init_load_base_model w/ transformer init
-    # [x] need to init discriminator optimizer
-    # [x] hooked accelerator prepare discriminator and discriminator optimizer in init_prepare_models
-    # [x] all under config.use_adversarial_loss
-
-    # [x ] load checkpoint
-    # [x ] save checkpoint
-    # likely these two are taken care of with accelerator save and load state
-    # [x ] training_models = [self.discriminator]
-    # [x ] save discriminator weights? there's stage at end where model is unwrapped and saved in diffusers format? not sure if this matters. no it doesn't bc i won't use discriminator in diffusrs pipeline
-
-    # [x ] discriminator.train()
-    # [x ] seems like self.lycoris_wrapped_network is the lycoris weights. _get_trainable_parameters() refers to lycoris weights when not in D phase.
-    # [ x] set / switch optimizer for step? looks like optimizer step is based on self.optimizer. I could put reference to first transformer in another ivar and switch between the two
-
-    # [x ] need to hook into _get_trainable_parameters()? used in grad norm clip
-    # [ x] hook into mark_optimizer_eval and mark_optimizer_train which seems to turn off optimizer for evals?
-    # [x ] do i need to "move" the discriminator to device w/ dtype? doesnt seem like it. accelerate is configured already and will handle that
-    # [x ] verify training_models refers to transformer and this includes for lycoris. seems like once lycoris is init w/ model and called apply_to, it becomes part of model
-    # [x ] init_freeze_models freezes the transformer when training lora (requires_grad_(False))
-   
     def load_discriminator(self, config):
         return FluxTransformer2DDiscriminator(
             transformer=self.transformer,
