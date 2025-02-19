@@ -72,7 +72,7 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         flux_transformer_kwargs = self.extract_flux_transformer_kwargs(prepared_batch)
        
         with self.temporarily_detach_lycoris():
-            discriminator_outputs = self.discriminator.forward(
+            discriminator_outputs = self.discriminator(
                 **flux_transformer_kwargs,
                 hidden_states=packed_predicted_clean_image_latent,
                 guidance_scale=self.config.flux_guidance_value,

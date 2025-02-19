@@ -1098,6 +1098,7 @@ class Trainer(AdversarialTrainerMixin):
                 ).gradient_checkpointing_disable()
 
     def _get_trainable_parameters(self):
+        # WARNING: is there an issue here with accessing lycoris wrapped network ivar reference vs accelerator attribute to get parameters during training operations?
         # Return just a list of the currently trainable parameters.
         if self.config.use_adversarial_loss and self.phase == Phase.D:
             return self._get_discriminator_trainable_parameters()

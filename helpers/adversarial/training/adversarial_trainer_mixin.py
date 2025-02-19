@@ -36,6 +36,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         self.current_step_loss_components = {}
 
     def load_discriminator(self, config):
+        logger.debug("Loading discriminator")
         return FluxTransformer2DDiscriminator(
             transformer=self.transformer,
         )
@@ -51,14 +52,17 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             return [self.discriminator]
         
     def get_step_logs(self):
-        return {
-            **self.current_step_loss_components,
-        }
+        logger.debug(f"get_step_logs: {self.current_step_loss_components}")
+        return self.current_step_loss_components
     
     def _get_discriminator_trainable_parameters(self):
         """
         Returns parameters of discriminator heads, excluding transformer parameters
         """
+        #
+        for name, param in self.discriminator.heads.named_parameters():
+            logger.debug(f"_get_discriminator_trainable_parameters: {name}")
+        #
         return self.discriminator.heads.parameters()
     
     # these are behind checks for hasattr 'eval' and 'train'
@@ -75,6 +79,10 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             param.requires_grad = False
 
     def freeze_lycoris_parameters(self):
+        #
+        for name, param in self.lycoris_wrapped_network.named_parameters():
+            logger.debug(f"lycoris_wrapped_network named parameters: {name}")
+        #
         for param in self.lycoris_wrapped_network.parameters():
             param.requires_grad = False
 
@@ -86,12 +94,23 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
 
     def adversarial_step_will_begin(self):
         if self.phase == Phase.G:
+            logger.debug("adversarial_step_will_begin: Phase G. Freezing discriminator and switching to G optimizer")
+            # freeze discriminator
+            # unfreeze generator lycoris
+            # ensure generator lycoris multiplier == 1.0 for generator forward pass
+            # but set lycoris multiplier to 0.0 for discriminator forward pass
             self.freeze_discriminator_trainable_parameters()
             self.optimizer = self.generator_optimizer
         else:
+            logger.debug("adversarial_step_will_begin: Phase D. Freezing generator lycoris and switching to D optimizer")
+            # Phase D
+            # freeze generator lycoris
+            # unfreeze discriminator heads
+            # generator lycoris should be activated during generator forward pass, then turned off for discriminator forward pass
             self.freeze_lycoris_parameters()
             self.optimizer = self.discriminator_optimizer
-        
+        logger.debug("Unfreezing trainable parameters")
+        # WARNING: is there an issue here with accessing lycoris wrapped network ivar reference vs accelerator attribute to get parameters during training operations?
         for param in self._get_trainable_parameters():
             param.requires_grad = True
     
