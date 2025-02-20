@@ -2879,6 +2879,7 @@ class Trainer(AdversarialTrainerMixin):
                     self.grad_norm = None
                     if not self.config.disable_accelerator:
                         training_logger.debug("Backwards pass.")
+                        
                         self.accelerator.backward(loss)
 
                         if (
@@ -2907,6 +2908,7 @@ class Trainer(AdversarialTrainerMixin):
                                 # deepspeed can only do norm clipping (internally)
                                 pass
                             elif self.config.grad_clip_method == "value":
+                                import pdb; pdb.set_trace()
                                 self.accelerator.clip_grad_value_(
                                     self._get_trainable_parameters(),
                                     self.config.max_grad_norm,

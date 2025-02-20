@@ -94,8 +94,15 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         self.discriminator.train()
 
     def adversarial_step_will_begin(self):
+        """
+        Sets models to appropriate modes and freezes/unfreezes parameters
+        Toggling of lycoris is handled granularly in loss calculation functions
+        """
         if self.phase == Phase.G:
             logger.debug("adversarial_step_will_begin: Phase G. Freezing discriminator and switching to G optimizer")
+            # Set models to appropriate modes
+            self.transformer.train()
+            self.discriminator.eval()
             # freeze discriminator
             # unfreeze generator lycoris
             # ensure generator lycoris multiplier == 1.0 for generator forward pass
@@ -105,6 +112,9 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         else:
             logger.debug("adversarial_step_will_begin: Phase D. Freezing generator lycoris and switching to D optimizer")
             # Phase D
+            # Set models to appropriate modes
+            self.transformer.eval()
+            self.discriminator.train()
             # freeze generator lycoris
             # unfreeze discriminator heads
             # generator lycoris should be activated during generator forward pass, then turned off for discriminator forward pass

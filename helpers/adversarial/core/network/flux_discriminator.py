@@ -215,8 +215,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
         training_mode = self.transformer.training
         self.transformer.eval()
         
-        with torch.no_grad():
-            self.transformer.forward(
+        self.transformer.forward(
                 hidden_states=hidden_states,
                 encoder_hidden_states=encoder_hidden_states,
                 pooled_projections=pooled_projections,
@@ -227,7 +226,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
                 joint_attention_kwargs=joint_attention_kwargs,
                 **added_cond_kwargs
             )
-
+            
         # Restore original training mode
         self.transformer.train(training_mode)
 
