@@ -63,7 +63,8 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         for name, param in self.discriminator.heads.named_parameters():
             logger.debug(f"_get_discriminator_trainable_parameters: {name}")
         #
-        return self.discriminator.heads.parameters()
+        # parameters actually return exhaustible generator, not just iterator. wrap in list
+        return list(self.discriminator.heads.parameters())
     
     # these are behind checks for hasattr 'eval' and 'train'
     def mark_adversarial_optimizers_train(self):

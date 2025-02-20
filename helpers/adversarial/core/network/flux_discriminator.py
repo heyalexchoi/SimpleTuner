@@ -140,13 +140,11 @@ class FluxTransformer2DDiscriminator(nn.Module):
         # attach hooks to the transformer blocks' attention layers at target indexes
         for idx in self.dual_stream_indexes:
             transformer_block = self.transformer.transformer_blocks[idx]
-            assert isinstance(transformer_block, FluxTransformerBlock)
             hook = transformer_block.attn.register_forward_hook(extract_features_hook)
             self.hooks.append(hook)
 
         for idx in self.single_stream_indexes:
             transformer_block = self.transformer.single_transformer_blocks[idx]
-            assert isinstance(transformer_block, FluxSingleTransformerBlock)
             hook = transformer_block.attn.register_forward_hook(extract_features_hook)
             self.hooks.append(hook)
 
