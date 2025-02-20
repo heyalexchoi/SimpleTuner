@@ -12,11 +12,17 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def calculate_adversarial_loss(self, model_pred, prepared_batch) -> torch.Tensor:
+    def calculate_adversarial_loss(self, unpacked_generator_predicted_noise, prepared_batch) -> torch.Tensor:
         if self.phase == Phase.G:
-            return self.calculate_generator_loss(model_pred, prepared_batch)
+            return self.calculate_generator_loss(
+                unpacked_generator_predicted_noise=unpacked_generator_predicted_noise, 
+                prepared_batch=prepared_batch
+                )
         elif self.phase == Phase.D:
-            return self.calculate_discriminator_loss(model_pred, prepared_batch)
+            return self.calculate_discriminator_loss(
+                unpacked_generator_predicted_noise=unpacked_generator_predicted_noise, 
+                prepared_batch=prepared_batch
+                )
         else:
             raise ValueError(f"Invalid phase: {self.phase}")
 

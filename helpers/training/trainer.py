@@ -2592,7 +2592,7 @@ class Trainer(AdversarialTrainerMixin):
         
         if self.config.use_adversarial_loss:
             return self.calculate_adversarial_loss(
-                model_pred=model_pred,
+                unpacked_generator_predicted_noise=model_pred,
                 prepared_batch=prepared_batch,
             )
 
