@@ -132,9 +132,16 @@ class FluxTransformer2DDiscriminator(nn.Module):
         self.features = []
         
         # hook appends module output into self.features. should be lightweight reference.
+        self._is_collecting_features = False
+        
         def extract_features_hook(module, input, output):
             # For cross-attention blocks, output will be (hidden_states, encoder_hidden_states)
             # For self-attention blocks, output will be just hidden_states
+
+            # only store features when discriminator doing forward pass
+            if not self._is_collecting_features:
+                return output
+            
             if isinstance(output, tuple):
                 # We want the processed hidden states, which is the first element
                 self.features.append(output[0])
@@ -196,6 +203,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
                 guidance_scale: float,
                 joint_attention_kwargs=None, added_cond_kwargs={},
                 **kwargs):
+        self._is_collecting_features = True
         # Clear features from previous forward passes
         logger.debug(f"flux discriminator forward unnamed kwargs: {kwargs}")
         self.features = []
@@ -233,12 +241,13 @@ class FluxTransformer2DDiscriminator(nn.Module):
         # Process extracted features
         res_list = []
         # Detach features from transformer and enable gradients for discriminator processing
-        features = [feat.detach().requires_grad_(True) for feat in self.features]
         
-        for feat, head in zip(features, self.heads):
+        for feat, head in zip(self.features, self.heads):
             res_list.append(head(feat.transpose(1,2), None).reshape(feat.shape[0], -1))
         
         concat_res = torch.cat(res_list, dim=1)
+        self.features = []
+        self._is_collecting_features = False
 
         return concat_res
 
