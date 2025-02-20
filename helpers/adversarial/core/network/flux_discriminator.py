@@ -207,8 +207,13 @@ class FluxTransformer2DDiscriminator(nn.Module):
                             dtype=hidden_states.dtype)
         guidance = guidance.expand(hidden_states.shape[0])
 
-        # verify transformer is frozen
+         # Both freeze and verify transformer parameters
+        self.transformer.requires_grad_(False)
         assert not any(p.requires_grad for p in self.transformer.parameters()), "Transformer must be frozen"
+        
+        # Store training mode and switch to eval
+        training_mode = self.transformer.training
+        self.transformer.eval()
         
         with torch.no_grad():
             self.transformer.forward(
@@ -220,8 +225,11 @@ class FluxTransformer2DDiscriminator(nn.Module):
                 img_ids=img_ids,
                 guidance=guidance,
                 joint_attention_kwargs=joint_attention_kwargs,
-                **added_cond_kwargs  # Use ** to properly unpack kwargs
+                **added_cond_kwargs
             )
+
+        # Restore original training mode
+        self.transformer.train(training_mode)
 
         # Process extracted features
         res_list = []
