@@ -133,8 +133,14 @@ class FluxTransformer2DDiscriminator(nn.Module):
         
         # hook appends module output into self.features. should be lightweight reference.
         def extract_features_hook(module, input, output):
-            self.features.append(output)
-            # apparently pytorch hooks can replace the forward output
+            # For cross-attention blocks, output will be (hidden_states, encoder_hidden_states)
+            # For self-attention blocks, output will be just hidden_states
+            if isinstance(output, tuple):
+                # We want the processed hidden states, which is the first element
+                self.features.append(output[0])
+            else:
+                # For self-attention, we get the hidden states directly
+                self.features.append(output)
             return output
             
         # attach hooks to the transformer blocks' attention layers at target indexes
@@ -188,29 +194,36 @@ class FluxTransformer2DDiscriminator(nn.Module):
     def forward(self, hidden_states, timesteps, encoder_hidden_states, 
                 pooled_projections, text_ids, img_ids,
                 guidance_scale: float,
-                joint_attention_kwargs=None, added_cond_kwargs={}):
+                joint_attention_kwargs=None, added_cond_kwargs={},
+                **kwargs):
         # Clear features from previous forward passes
+        logger.debug(f"flux discriminator forward unnamed kwargs: {kwargs}")
         self.features = []
 
-        guidance = torch.full([1], guidance_scale) # in diffusers this was dtype fp32
+        # Convert guidance_scale to tensor with proper device/dtype matching hidden_states
+        # in diffusers this was dtype fp32
+        guidance = torch.full([1], guidance_scale, 
+                            device=hidden_states.device,
+                            dtype=hidden_states.dtype)
         guidance = guidance.expand(hidden_states.shape[0])
 
         # verify transformer is frozen
         assert not any(p.requires_grad for p in self.transformer.parameters()), "Transformer must be frozen"
         
-        # we have a hook that extracts the features
-        self.transformer.forward(
-            hidden_states=hidden_states,
-            encoder_hidden_states=encoder_hidden_states,
-            pooled_projections=pooled_projections,
-            timestep=timesteps,
-            txt_ids=text_ids,
-            img_ids=img_ids,
-            guidance=guidance,
-            joint_attention_kwargs=joint_attention_kwargs,
-            *added_cond_kwargs
-        )
+        with torch.no_grad():
+            self.transformer.forward(
+                hidden_states=hidden_states,
+                encoder_hidden_states=encoder_hidden_states,
+                pooled_projections=pooled_projections,
+                timestep=timesteps,
+                txt_ids=text_ids,
+                img_ids=img_ids,
+                guidance=guidance,
+                joint_attention_kwargs=joint_attention_kwargs,
+                **added_cond_kwargs  # Use ** to properly unpack kwargs
+            )
 
+        # Process extracted features
         res_list = []
         for feat, head in zip(self.features, self.heads):
             res_list.append(head(feat.transpose(1,2), None).reshape(feat.shape[0], -1))

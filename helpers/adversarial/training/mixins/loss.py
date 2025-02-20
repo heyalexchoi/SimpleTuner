@@ -223,9 +223,15 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
             dtype=self.config.base_weight_dtype,
         )
 
-        pooled_projections = prepared_batch.get('add_text_embeds')
+        pooled_projections = prepared_batch.get('add_text_embeds').to(
+            device=self.accelerator.device,
+            dtype=self.config.base_weight_dtype,
+        )   
         # confusingly this is set twice in model_predict, but this is the final value passed to flux transformer:
-        encoder_hidden_states = prepared_batch.get('prompt_embeds')
+        encoder_hidden_states = prepared_batch.get('prompt_embeds').to(
+            device=self.accelerator.device,
+            dtype=self.config.base_weight_dtype,
+        )
 
         return {
             "noisy_latents": noisy_latents,
