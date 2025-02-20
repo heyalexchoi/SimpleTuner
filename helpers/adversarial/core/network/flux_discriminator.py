@@ -233,11 +233,14 @@ class FluxTransformer2DDiscriminator(nn.Module):
 
         # Process extracted features
         res_list = []
-        for feat, head in zip(self.features, self.heads):
+        # Detach features from transformer and enable gradients for discriminator processing
+        features = [feat.detach().requires_grad_(True) for feat in self.features]
+        
+        for feat, head in zip(features, self.heads):
             res_list.append(head(feat.transpose(1,2), None).reshape(feat.shape[0], -1))
         
         concat_res = torch.cat(res_list, dim=1)
-        
+
         return concat_res
 
     def save_pretrained(self, path):
