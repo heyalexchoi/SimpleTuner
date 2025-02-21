@@ -158,11 +158,13 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
             # Get discriminator predictions for real image and fake generated image
             disc_real = self.discriminator(
                 **extracted_flux_transformer_kwargs,
+                extracted_features_grads_enabled=False,
                 hidden_states=real_samples,
                 guidance_scale=guidance_scale,
             )
             disc_fake = self.discriminator(
                 **extracted_flux_transformer_kwargs,
+                extracted_features_grads_enabled=False,
                 hidden_states=fake_samples,
                 guidance_scale=guidance_scale,
             )
@@ -178,6 +180,7 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         with torch.no_grad(), self.temporarily_detach_lycoris():
             noised_outputs = self.discriminator(
                 **extracted_flux_transformer_kwargs,
+                extracted_features_grads_enabled=False,
                 hidden_states=noised_samples,
                 guidance_scale=guidance_scale,
                 )
