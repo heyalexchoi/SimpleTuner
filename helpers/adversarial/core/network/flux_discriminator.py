@@ -172,6 +172,18 @@ class FluxTransformer2DDiscriminator(nn.Module):
     def model(self):
         return self.transformer
     
+    def train(self, mode=True):
+        transformer_training_mode = self.transformer.training
+        super().train(mode)
+        self.transformer.train(transformer_training_mode)
+        return self
+
+    def eval(self):
+        transformer_training_mode = self.transformer.training
+        super().eval()
+        self.transformer.train(transformer_training_mode)
+        return self
+    
     def remove_hooks(self):
         """Remove all hooks to prevent memory leaks"""
         for hook in self.hooks:

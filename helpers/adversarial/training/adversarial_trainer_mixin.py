@@ -99,7 +99,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         Toggling of lycoris is handled granularly in loss calculation functions
         """
         if self.phase == Phase.G:
-            logger.debug("adversarial_step_will_begin: Phase G. Freezing discriminator and switching to G optimizer")
+            logger.info("adversarial_step_will_begin: Phase G. Freezing discriminator and switching to G optimizer")
             # Set models to appropriate modes
             self.transformer.train()
             self.discriminator.eval()
@@ -110,7 +110,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             self.freeze_discriminator_trainable_parameters()
             self.optimizer = self.generator_optimizer
         else:
-            logger.debug("adversarial_step_will_begin: Phase D. Freezing generator lycoris and switching to D optimizer")
+            logger.info("adversarial_step_will_begin: Phase D. Freezing generator lycoris and switching to D optimizer")
             # Phase D
             # Set models to appropriate modes
             self.transformer.eval()
@@ -120,7 +120,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             # generator lycoris should be activated during generator forward pass, then turned off for discriminator forward pass
             self.freeze_lycoris_parameters()
             self.optimizer = self.discriminator_optimizer
-        logger.debug("Unfreezing trainable parameters")
+        logger.info("Unfreezing trainable parameters")
         # WARNING: is there an issue here with accessing lycoris wrapped network ivar reference vs accelerator attribute to get parameters during training operations?
         for param in self._get_trainable_parameters():
             param.requires_grad = True
