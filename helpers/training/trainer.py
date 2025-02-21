@@ -1458,8 +1458,7 @@ class Trainer(AdversarialTrainerMixin):
             )
 
         if self.config.use_adversarial_loss:
-            self.discriminator = self.accelerator.prepare(self.discriminator)
-            self.discriminator_optimizer = self.accelerator.prepare(self.discriminator_optimizer)
+            self.prepare_adversarial_items()
 
         self._recalculate_training_steps()
         self.accelerator.wait_for_everyone()
@@ -2908,7 +2907,6 @@ class Trainer(AdversarialTrainerMixin):
                                 # deepspeed can only do norm clipping (internally)
                                 pass
                             elif self.config.grad_clip_method == "value":
-                                import pdb; pdb.set_trace()
                                 self.accelerator.clip_grad_value_(
                                     self._get_trainable_parameters(),
                                     self.config.max_grad_norm,
@@ -2931,6 +2929,7 @@ class Trainer(AdversarialTrainerMixin):
                             )
                         else:
                             self.optimizer.step()
+                        
                         self.optimizer.zero_grad(
                             set_to_none=self.config.set_grads_to_none
                         )

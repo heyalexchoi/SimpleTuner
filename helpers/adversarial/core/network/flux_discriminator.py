@@ -110,7 +110,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
     - Features are processed through DiscHead modules that use spectral normalization
     - Can extract from single layer or multiple layers (multiscale mode)
     """
-    def __init__(self, transformer: FluxTransformer2DModel):
+    def __init__(self, transformer: FluxTransformer2DModel, torch_dtype: torch.dtype):
         super().__init__()
         self.transformer = transformer
         
@@ -167,6 +167,8 @@ class FluxTransformer2DDiscriminator(nn.Module):
         for i in range(num_hooks):
             heads.append(DiscHead(self.transformer.inner_dim, 0, 0))
         self.heads = nn.ModuleList(heads)
+        
+        self.to(torch_dtype)
 
     @property
     def model(self):
@@ -214,6 +216,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
                 pooled_projections, text_ids, img_ids,
                 guidance_scale: float,
                 joint_attention_kwargs=None, added_cond_kwargs={},
+                extracted_features_grads_enabled=True,
                 **kwargs):
         self._is_collecting_features = True
         # Clear features from previous forward passes
@@ -235,17 +238,18 @@ class FluxTransformer2DDiscriminator(nn.Module):
         training_mode = self.transformer.training
         self.transformer.eval()
         
-        self.transformer.forward(
-                hidden_states=hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                pooled_projections=pooled_projections,
-                timestep=timesteps,
-                txt_ids=text_ids,
-                img_ids=img_ids,
-                guidance=guidance,
-                joint_attention_kwargs=joint_attention_kwargs,
-                **added_cond_kwargs
-            )
+        with torch.set_grad_enabled(extracted_features_grads_enabled):
+            self.transformer.forward(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    pooled_projections=pooled_projections,
+                    timestep=timesteps,
+                    txt_ids=text_ids,
+                    img_ids=img_ids,
+                    guidance=guidance,
+                    joint_attention_kwargs=joint_attention_kwargs,
+                    **added_cond_kwargs
+                )
             
         # Restore original training mode
         self.transformer.train(training_mode)

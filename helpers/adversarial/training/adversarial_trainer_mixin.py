@@ -1,23 +1,11 @@
-import sys
-import torch
-from torch import nn
-from torch.optim.optimizer import Optimizer
-import logging
-
-from enum import Enum
-from diffusers.models.transformers.transformer_flux import FluxTransformer2DModel  # assuming this is the generator model
 from helpers.adversarial.core.network.flux_discriminator import FluxTransformer2DDiscriminator
 from helpers.adversarial.core.constants import Phase
-import os
-from helpers.data_backend.factory import random_dataloader_iterator
-from helpers.training.state_tracker import StateTracker
-from tqdm import tqdm
-from accelerate import Accelerator
 from ..core.logging import get_adversarial_logger
 
 from .mixins.protocols import AdversarialTrainerProtocol
 from .mixins.loss import AdversarialLossMixin
 
+import torch
 logger = get_adversarial_logger()
 
 class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
@@ -28,6 +16,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
 
     Behavior outside of flux lycoris / lokr is undefined.
     Deepspeed training not implemented.
+    LR schedules besides constant are not implemented.
     """
 
     def __init__(self, *args, **kwargs):
@@ -39,6 +28,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         logger.debug("Loading discriminator")
         return FluxTransformer2DDiscriminator(
             transformer=self.transformer,
+            torch_dtype=self.config.weight_dtype,
         )
     
     def get_training_models(self):
@@ -59,10 +49,6 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         """
         Returns parameters of discriminator heads, excluding transformer parameters
         """
-        #
-        for name, param in self.discriminator.heads.named_parameters():
-            logger.debug(f"_get_discriminator_trainable_parameters: {name}")
-        #
         # parameters actually return exhaustible generator, not just iterator. wrap in list
         return list(self.discriminator.heads.parameters())
     
@@ -78,6 +64,12 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
     def freeze_discriminator_trainable_parameters(self):
         for param in self._get_discriminator_trainable_parameters():
             param.requires_grad = False
+
+    def prepare_adversarial_items(self):
+        self.discriminator, self.discriminator_optimizer = self.accelerator.prepare(
+            self.discriminator,
+            self.discriminator_optimizer,
+        )
 
     def freeze_lycoris_parameters(self):
         #
@@ -131,3 +123,11 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             self.phase = Phase.D
         else:
             self.phase = Phase.G
+
+    # debug
+
+    def check_model_dtypes(self, optimizer: torch.optim.Optimizer):
+        for group_idx, group in enumerate(optimizer.param_groups):
+            logger.info(f"\nGroup {group_idx}:")
+            for param in group['params']:
+                logger.info(f"dtype={param.dtype}, shape={param.shape}")
