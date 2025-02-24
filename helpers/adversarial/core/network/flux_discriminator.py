@@ -5,6 +5,7 @@ from diffusers.models.transformers.transformer_flux import FluxTransformer2DMode
 import torch.nn as nn
 import torch
 from torch.nn.utils.spectral_norm import SpectralNorm
+from torch.utils.checkpoint import checkpoint
 import numpy as np
 
 from helpers.adversarial.core.logging import get_adversarial_logger
@@ -118,6 +119,9 @@ class FluxTransformer2DDiscriminator(nn.Module):
         self.transformer.requires_grad_(False)
         assert not any(p.requires_grad for p in self.transformer.parameters()), "Transformer must be frozen"
         
+        # Add gradient checkpointing flag
+        self.gradient_checkpointing = False
+        
         self.hooks = []
         # NOTE: Flux dev transformer has 57 blocks. 19 dual stream and 38 single stream.
         # since I want block indexes 0, 14, 28, 42, 56 and flux dev refers to the dual and single stream blocks separately
@@ -212,6 +216,10 @@ class FluxTransformer2DDiscriminator(nn.Module):
     text_ids is a bunch of zeros, it seems.
 
     """
+    def _head_forward(self, feat, head):
+        """Helper method for gradient checkpointing"""
+        return head(feat.transpose(1,2), None).reshape(feat.shape[0], -1)
+    
     def forward(self, hidden_states, timesteps, encoder_hidden_states, 
                 pooled_projections, text_ids, img_ids,
                 guidance_scale: float,
@@ -256,10 +264,19 @@ class FluxTransformer2DDiscriminator(nn.Module):
 
         # Process extracted features
         res_list = []
-        # Detach features from transformer and enable gradients for discriminator processing
         
         for feat, head in zip(self.features, self.heads):
-            res_list.append(head(feat.transpose(1,2), None).reshape(feat.shape[0], -1))
+            if self.gradient_checkpointing and self.training:
+                # Use gradient checkpointing for memory efficiency
+                res = checkpoint(
+                    self._head_forward,
+                    feat, head,
+                    use_reentrant=False  # Modern PyTorch recommendation
+                )
+            else:
+                res = self._head_forward(feat, head)
+            
+            res_list.append(res)
         
         concat_res = torch.cat(res_list, dim=1)
         self.features = []
@@ -269,3 +286,18 @@ class FluxTransformer2DDiscriminator(nn.Module):
 
     def save_pretrained(self, path):
         torch.save(self.state_dict(), path)
+
+    def enable_gradient_checkpointing(self):
+        """
+        Enables gradient checkpointing for the discriminator heads.
+        Note: The transformer itself has its own gradient checkpointing implementation.
+        """
+        self.gradient_checkpointing = True
+        return self
+    
+    def disable_gradient_checkpointing(self):
+        """
+        Disables gradient checkpointing for the discriminator heads.
+        """
+        self.gradient_checkpointing = False
+        return self
