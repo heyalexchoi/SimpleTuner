@@ -101,6 +101,8 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         Sets models to appropriate modes and freezes/unfreezes parameters
         Toggling of lycoris is handled granularly in loss calculation functions
         """
+        self.verify_transformer_and_lycoris_parameters_exclusive()
+        self.verify_lycoris_identities()
         if self.phase == Phase.G:
             logger.info("adversarial_step_will_begin: Phase G. Freezing discriminator and switching to G optimizer")
             # Set models to appropriate modes
@@ -146,6 +148,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
 
     
     def adversarial_step_will_end(self):
+        self.verify_transformer_and_lycoris_parameters_exclusive()
         self.current_step_loss_components = {}
         if self.phase == Phase.G:
             self.phase = Phase.D
@@ -159,13 +162,25 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         self.profiler.export_chrome_trace(f"trace_{self.phase.value}.json")
         
 
-    # debug
+    # DEBUG
+    def verify_transformer_and_lycoris_parameters_exclusive(self):
+        transformer_params = list(self.transformer.parameters())
+        lycoris_params = list(self.lycoris_wrapped_network.parameters())
+        # Instead of comparing tensors directly, compare their ids
+        lycoris_param_ids = {id(p) for p in lycoris_params}
+        assert not any(id(p) in lycoris_param_ids for p in transformer_params)
+        logger.info("CONFIRMED transformer and lycoris parameters are exclusive")
 
-    def check_model_dtypes(self, optimizer: torch.optim.Optimizer):
-        for group_idx, group in enumerate(optimizer.param_groups):
-            logger.info(f"\nGroup {group_idx}:")
-            for param in group['params']:
-                logger.info(f"dtype={param.dtype}, shape={param.shape}")
+    def verify_lycoris_identities(self):
+        ivar_lycoris_wrapped_network = self.lycoris_wrapped_network
+        accelerator_lycoris_wrapped_network = self.accelerator._lycoris_wrapped_network # type: ignore
+        assert ivar_lycoris_wrapped_network == accelerator_lycoris_wrapped_network
+        logger.info("CONFIRMED ivar_lycoris_wrapped_network == accelerator_lycoris_wrapped_network")
+        # compare their params
+        ivar_lycoris_param_ids = {id(p) for p in ivar_lycoris_wrapped_network.parameters()}
+        accelerator_lycoris_param_ids = {id(p) for p in accelerator_lycoris_wrapped_network.parameters()}
+        assert ivar_lycoris_param_ids == accelerator_lycoris_param_ids
+        logger.info(f"CONFIRMED ivar_lycoris_param_ids == accelerator_lycoris_param_ids {len(ivar_lycoris_param_ids)} params")
 
     def create_profiler(self):
         self.profiler = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
