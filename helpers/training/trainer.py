@@ -2871,10 +2871,6 @@ class Trainer(AdversarialTrainerMixin):
                         prepared_batch, model_pred, target, apply_conditioning_mask=True
                     )
 
-                    ## DEBUG
-                    logger.info(f"calculated loss value: {loss.item()}")
-                    ##
-
                     parent_loss = None
                     if is_regularisation_data:
                         parent_loss = loss
@@ -2895,13 +2891,13 @@ class Trainer(AdversarialTrainerMixin):
 
                         ## DEBUG
                         # Check grads exist and reasonable
-                        if self.phase == Phase.G:
-                            logger.info("Phase G AFTER BACKWARD lycoris_wrapped_network named parameters grad stats:")
-                            for name, param in self.lycoris_wrapped_network.named_parameters():
-                                if param.grad is not None:
-                                    logger.info(f"{name} grad stats:")
-                                    logger.info(f"Mean: {param.grad.abs().mean()}")
-                                    logger.info(f"Range: {param.grad.min()}, {param.grad.max()}")
+                        # if self.phase == Phase.G:
+                        #     logger.info("Phase G AFTER BACKWARD lycoris_wrapped_network named parameters grad stats:")
+                        #     for name, param in self.lycoris_wrapped_network.named_parameters():
+                        #         if param.grad is not None:
+                        #             logger.info(f"{name} grad stats:")
+                        #             logger.info(f"Mean: {param.grad.abs().mean()}")
+                        #             logger.info(f"Range: {param.grad.min()}, {param.grad.max()}")
                                     
                         ##
 
@@ -2953,23 +2949,24 @@ class Trainer(AdversarialTrainerMixin):
                             )
                         else:
                             ## DEBUG
-                            if self.phase == Phase.G:
-                                before_params = {
-                                    name: param.detach().clone()
-                                    for name, param in self.lycoris_wrapped_network.named_parameters()
-                                }
-                            ##
+                            previous_params = [param.clone().detach() for param in self._get_trainable_parameters()]
+
+                            ## 
                             self.optimizer.step()
                         
                         self.optimizer.zero_grad(
                             set_to_none=self.config.set_grads_to_none
                         )
                         ## DEBUG
-                        if self.phase == Phase.G:
-                            logger.info("Phase G after zero grad named parameters mean changes:")
-                            for name, param in self.lycoris_wrapped_network.named_parameters():
-                                diff = (param - before_params[name]).abs().mean()
-                                logger.info(f"{name} mean change: {diff}")
+                        
+                        logger.info(" after optimizer.step() parameters mean changes:")
+                        current_params = [param.clone().detach() for param in self._get_trainable_parameters()]
+                        # Calculate total change
+                        total_change = 0
+                        for prev, curr in zip(previous_params, current_params):
+                            param_change = (curr - prev).abs().sum().item()
+                            total_change += param_change
+                        logger.info(f"Total trainable parameters change: {total_change}")
                         ##
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
