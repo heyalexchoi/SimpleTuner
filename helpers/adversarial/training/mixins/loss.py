@@ -212,16 +212,18 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
                 )
         
         timesteps = (
-            torch.tensor(timesteps)
+            torch.tensor(
+                timesteps, 
+                device=self.accelerator.device,
+                dtype=self.config.base_weight_dtype,
+            )
             .expand(noisy_latents.shape[0])
-            .to(device=self.accelerator.device)
             / 1000
         )
 
         text_ids = torch.zeros(
             prepared_batch["prompt_embeds"].shape[1],
             3,
-        ).to(
             device=self.accelerator.device,
             dtype=self.config.base_weight_dtype,
         )
