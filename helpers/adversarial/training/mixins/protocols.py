@@ -14,6 +14,7 @@ class TrainerProtocol(Protocol):
     transformer: nn.Module
     optimizer: Optimizer
     train_loss: float
+    grad_norm: float
     phase: Any
     timesteps_buffer: list
     _get_trainable_parameters: Callable

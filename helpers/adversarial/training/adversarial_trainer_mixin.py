@@ -46,7 +46,15 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             return [self.discriminator]
         
     def get_step_logs(self):
-        logger.debug(f"get_step_logs: {self.current_step_loss_components}")
+        """
+        Returns dictionary of loss components for current step.
+        Called before trainer calls accelerator.log(wandb_updates)
+        """
+        self.current_step_loss_components.update({
+            f"{self.phase.value}_train_loss": self.train_loss,
+            f"{self.phase.value}_grad_absmax": self.grad_norm,
+        })
+        logger.info(f"get_step_logs: {self.current_step_loss_components}")
         return self.current_step_loss_components
     
     def _get_discriminator_trainable_parameters(self):

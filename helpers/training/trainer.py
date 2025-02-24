@@ -2961,8 +2961,7 @@ class Trainer(AdversarialTrainerMixin):
                             if self.phase == Phase.G:
                                 before_params = {
                                     name: param.detach().clone()
-                                    for name, param in self.transformer.named_parameters()
-                                    if 'lycoris' in name
+                                    for name, param in self.lycoris_wrapped_network.named_parameters()
                                 }
                             ##
                             self.optimizer.step()
@@ -2973,10 +2972,9 @@ class Trainer(AdversarialTrainerMixin):
                         ## DEBUG
                         if self.phase == Phase.G:
                             logger.info("Phase G after zero grad named parameters mean changes:")
-                            for name, param in self.transformer.named_parameters():
-                                if 'lycoris' in name:
-                                    diff = (param - before_params[name]).abs().mean()
-                                    logger.info(f"{name} mean change: {diff}")
+                            for name, param in self.lycoris_wrapped_network.named_parameters():
+                                diff = (param - before_params[name]).abs().mean()
+                                logger.info(f"{name} mean change: {diff}")
                         ##
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
@@ -3004,9 +3002,7 @@ class Trainer(AdversarialTrainerMixin):
                             "epoch": epoch,
                         }
                     )
-                    if self.config.use_adversarial_loss:
-                        wandb_logs.update(self.get_step_logs())
-
+                    
                     if parent_loss is not None:
                         wandb_logs["regularisation_loss"] = parent_loss
                     if self.config.model_family == "flux" and self.guidance_values_list:
@@ -3196,6 +3192,9 @@ class Trainer(AdversarialTrainerMixin):
                         print(f"Tracking information: {tracker_table}")
                         wandb_logs.update(tracker_table)
                         self.mark_optimizer_train()
+
+                    if self.config.use_adversarial_loss:
+                        wandb_logs.update(self.get_step_logs())
 
                     self.accelerator.log(
                         wandb_logs,
