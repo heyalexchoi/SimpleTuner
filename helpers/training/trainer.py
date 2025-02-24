@@ -2863,6 +2863,24 @@ class Trainer(AdversarialTrainerMixin):
                         prepared_batch, model_pred, target, apply_conditioning_mask=True
                     )
 
+                    ## DEBUG
+                    if self.phase == Phase.G:
+                        logger.info(f"Loss value: {loss.item()}")
+                        # Check loss connected to Lycoris
+                        node = loss.grad_fn
+                        lycoris_ops_found = []
+                        while node is not None:
+                            op_name = type(node).__name__
+                            if "lycoris" in op_name.lower():
+                                lycoris_ops_found.append(op_name)
+                            node = node.next_functions[0][0] if node.next_functions else None
+
+                        if lycoris_ops_found:
+                            logger.info(f"Found LyCORIS ops in graph: {lycoris_ops_found}")
+                        else:
+                            logger.warning("No LyCORIS operations found in computation graph!")
+                    ##
+
                     parent_loss = None
                     if is_regularisation_data:
                         parent_loss = loss
@@ -2880,6 +2898,17 @@ class Trainer(AdversarialTrainerMixin):
                         training_logger.debug("Backwards pass.")
                         
                         self.accelerator.backward(loss)
+
+                        ## DEBUG
+                        # Check grads exist and reasonable
+                        if self.phase == Phase.G:
+                            logger.info("Phase G after backward named parameters grad stats:")
+                            for name, param in self.transformer.named_parameters():
+                                if 'lycoris' in name and param.grad is not None:
+                                    logger.info(f"{name} grad stats:")
+                                    logger.info(f"Mean: {param.grad.abs().mean()}")
+                                    logger.info(f"Range: {param.grad.min()}, {param.grad.max()}")
+                        ##
 
                         if (
                             self.config.optimizer != "adam_bfloat16"
@@ -2928,11 +2957,27 @@ class Trainer(AdversarialTrainerMixin):
                                 should_not_release_gradients
                             )
                         else:
+                            ## DEBUG
+                            if self.phase == Phase.G:
+                                before_params = {
+                                    name: param.detach().clone()
+                                    for name, param in self.transformer.named_parameters()
+                                    if 'lycoris' in name
+                                }
+                            ##
                             self.optimizer.step()
                         
                         self.optimizer.zero_grad(
                             set_to_none=self.config.set_grads_to_none
                         )
+                        ## DEBUG
+                        if self.phase == Phase.G:
+                            logger.info("Phase G after zero grad named parameters mean changes:")
+                            for name, param in self.transformer.named_parameters():
+                                if 'lycoris' in name:
+                                    diff = (param - before_params[name]).abs().mean()
+                                    logger.info(f"{name} mean change: {diff}")
+                        ##
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 wandb_logs = {}

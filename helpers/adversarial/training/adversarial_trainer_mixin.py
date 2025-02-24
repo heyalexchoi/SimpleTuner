@@ -116,6 +116,21 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         # WARNING: is there an issue here with accessing lycoris wrapped network ivar reference vs accelerator attribute to get parameters during training operations?
         for param in self._get_trainable_parameters():
             param.requires_grad = True
+        
+        # DEBUG
+        # Check params trainable
+        if self.phase == Phase.G:
+            for name, param in self.transformer.named_parameters():
+                if 'lycoris' in name:
+                    logger.info(f"Phase G transformer param {name}: requires_grad={param.requires_grad}")
+            # Verify in optimizer
+            for group in self.optimizer.param_groups:
+                lycoris_params = [p for p in group['params'] if any(id(p) == id(param) 
+                    for name, param in self.transformer.named_parameters() 
+                    if 'lycoris' in name)]
+                logger.info(f"Lycoris params in optimizer group: {len(lycoris_params)}")
+
+
     
     def adversarial_step_will_end(self):
         self.current_step_loss_components = {}
