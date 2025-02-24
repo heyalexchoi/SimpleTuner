@@ -1070,6 +1070,10 @@ class Trainer(AdversarialTrainerMixin):
                 unwrap_model(
                     self.accelerator, self.text_encoder_2
                 ).gradient_checkpointing_enable()
+            if self.config.use_adversarial_loss:
+                unwrap_model(
+                    self.accelerator, self.discriminator
+                ).enable_gradient_checkpointing()
 
     def disable_gradient_checkpointing(self):
         if self.config.gradient_checkpointing:
@@ -1096,6 +1100,10 @@ class Trainer(AdversarialTrainerMixin):
                 unwrap_model(
                     self.accelerator, self.text_encoder_2
                 ).gradient_checkpointing_disable()
+            if self.config.use_adversarial_loss:
+                unwrap_model(
+                    self.accelerator, self.discriminator
+                ).disable_gradient_checkpointing()
 
     def _get_trainable_parameters(self):
         # WARNING: is there an issue here with accessing lycoris wrapped network ivar reference vs accelerator attribute to get parameters during training operations?
