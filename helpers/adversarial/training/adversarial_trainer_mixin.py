@@ -6,6 +6,10 @@ from .mixins.protocols import AdversarialTrainerProtocol
 from .mixins.loss import AdversarialLossMixin
 
 import torch
+
+# debugging
+from torch.profiler import profile, ProfilerActivity
+
 logger = get_adversarial_logger()
 
 class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
@@ -118,6 +122,8 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             param.requires_grad = True
         
         # DEBUG
+        self.create_profiler()
+        self.profiler.start()
         # Check params trainable
         if self.phase == Phase.G:
             for name, param in self.transformer.named_parameters():
@@ -138,6 +144,13 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             self.phase = Phase.D
         else:
             self.phase = Phase.G
+        
+        # DEBUG
+        self.profiler.stop()
+        logger.info(f"Snapshot {self.phase.value}:")
+        logger.info(self.profiler.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
+        self.profiler.export_chrome_trace(f"trace_{self.phase.value}.json")
+        
 
     # debug
 
@@ -146,3 +159,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             logger.info(f"\nGroup {group_idx}:")
             for param in group['params']:
                 logger.info(f"dtype={param.dtype}, shape={param.shape}")
+
+    def create_profiler(self):
+        self.profiler = profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
+              profile_memory=True, record_shapes=True, with_stack=True)
