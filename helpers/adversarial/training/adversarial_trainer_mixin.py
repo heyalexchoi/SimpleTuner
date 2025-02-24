@@ -45,14 +45,17 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         else:
             return [self.discriminator]
         
-    def get_step_logs(self):
+    def get_step_logs(self, wandb_logs: dict):
         """
         Returns dictionary of loss components for current step.
-        Called before trainer calls accelerator.log(wandb_updates)
+        Called immediately before trainer calls accelerator.log(wandb_updates)
         """
+        # add phase label to train_loss and grad_absmax
+        train_loss = wandb_logs["train_loss"]
+        grad_absmax = wandb_logs["grad_absmax"]
         self.current_step_loss_components.update({
-            f"{self.phase.value}_train_loss": self.train_loss,
-            f"{self.phase.value}_grad_absmax": self.grad_norm,
+            f"{self.phase.value}_train_loss": train_loss,
+            f"{self.phase.value}_grad_absmax": grad_absmax,
         })
         logger.info(f"get_step_logs: {self.current_step_loss_components}")
         return self.current_step_loss_components
@@ -84,10 +87,6 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         )
 
     def freeze_lycoris_parameters(self):
-        #
-        for name, param in self.lycoris_wrapped_network.named_parameters():
-            logger.debug(f"lycoris_wrapped_network named parameters: {name}")
-        #
         for param in self.lycoris_wrapped_network.parameters():
             param.requires_grad = False
 
@@ -134,14 +133,14 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         self.profiler.start()
         # Check params trainable
         if self.phase == Phase.G:
-            for name, param in self.transformer.named_parameters():
-                if 'lycoris' in name:
-                    logger.info(f"Phase G transformer param {name}: requires_grad={param.requires_grad}")
+            # plenty of these params. they are not in transformer. i think.
+            # for name, param in self.lycoris_wrapped_network.named_parameters():
+            #     logger.info(f"Phase G lycoris_wrapped_network param {name}: requires_grad={param.requires_grad}")
             # Verify in optimizer
             for group in self.optimizer.param_groups:
                 lycoris_params = [p for p in group['params'] if any(id(p) == id(param) 
-                    for name, param in self.transformer.named_parameters() 
-                    if 'lycoris' in name)]
+                    for name, param in self.lycoris_wrapped_network.named_parameters() 
+                    )]
                 logger.info(f"Lycoris params in optimizer group: {len(lycoris_params)}")
 
 
@@ -156,7 +155,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         # DEBUG
         self.profiler.stop()
         logger.info(f"Snapshot {self.phase.value}:")
-        logger.info(self.profiler.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=20))
+        logger.info(self.profiler.key_averages(group_by_stack_n=10).table(sort_by="self_cuda_memory_usage", row_limit=20))
         self.profiler.export_chrome_trace(f"trace_{self.phase.value}.json")
         
 

@@ -2864,21 +2864,7 @@ class Trainer(AdversarialTrainerMixin):
                     )
 
                     ## DEBUG
-                    if self.phase == Phase.G:
-                        logger.info(f"Loss value: {loss.item()}")
-                        # Check loss connected to Lycoris
-                        node = loss.grad_fn
-                        lycoris_ops_found = []
-                        while node is not None:
-                            op_name = type(node).__name__
-                            if "lycoris" in op_name.lower():
-                                lycoris_ops_found.append(op_name)
-                            node = node.next_functions[0][0] if node.next_functions else None
-
-                        if lycoris_ops_found:
-                            logger.info(f"Found LyCORIS ops in graph: {lycoris_ops_found}")
-                        else:
-                            logger.warning("No LyCORIS operations found in computation graph!")
+                    logger.info(f"calculated loss value: {loss.item()}")
                     ##
 
                     parent_loss = None
@@ -2902,12 +2888,13 @@ class Trainer(AdversarialTrainerMixin):
                         ## DEBUG
                         # Check grads exist and reasonable
                         if self.phase == Phase.G:
-                            logger.info("Phase G after backward named parameters grad stats:")
-                            for name, param in self.transformer.named_parameters():
-                                if 'lycoris' in name and param.grad is not None:
+                            logger.info("Phase G AFTER BACKWARD lycoris_wrapped_network named parameters grad stats:")
+                            for name, param in self.lycoris_wrapped_network.named_parameters():
+                                if param.grad is not None:
                                     logger.info(f"{name} grad stats:")
                                     logger.info(f"Mean: {param.grad.abs().mean()}")
                                     logger.info(f"Range: {param.grad.min()}, {param.grad.max()}")
+                                    
                         ##
 
                         if (
@@ -3194,7 +3181,7 @@ class Trainer(AdversarialTrainerMixin):
                         self.mark_optimizer_train()
 
                     if self.config.use_adversarial_loss:
-                        wandb_logs.update(self.get_step_logs())
+                        wandb_logs.update(self.get_step_logs(wandb_logs=wandb_logs))
 
                     self.accelerator.log(
                         wandb_logs,
