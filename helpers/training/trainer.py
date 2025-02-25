@@ -2948,26 +2948,11 @@ class Trainer(AdversarialTrainerMixin):
                                 should_not_release_gradients
                             )
                         else:
-                            ## DEBUG
-                            previous_params = [param.clone().detach() for param in self._get_trainable_parameters()]
-
-                            ## 
                             self.optimizer.step()
                         
                         self.optimizer.zero_grad(
                             set_to_none=self.config.set_grads_to_none
                         )
-                        ## DEBUG
-                        
-                        logger.info(" after optimizer.step() parameters mean changes:")
-                        current_params = [param.clone().detach() for param in self._get_trainable_parameters()]
-                        # Calculate total change
-                        total_change = 0
-                        for prev, curr in zip(previous_params, current_params):
-                            param_change = (curr - prev).abs().sum().item()
-                            total_change += param_change
-                        logger.info(f"Total trainable parameters change: {total_change}")
-                        ##
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 wandb_logs = {}
