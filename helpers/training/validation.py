@@ -1836,7 +1836,9 @@ class Evaluation:
         return sum(len(x["sampler"]) for _, x in eval_datasets.items())
 
     def get_timestep_schedule(self, noise_scheduler):
-        noise_scheduler.set_timesteps(self.config.eval_timesteps)
+        # noise_scheduler.set_timesteps(self.config.eval_timesteps)
+        # quick fix for flux. needs mu.
+        noise_scheduler.set_timesteps(self.config.eval_timesteps, mu=0.0)
         timesteps = noise_scheduler.timesteps
         return timesteps
 
