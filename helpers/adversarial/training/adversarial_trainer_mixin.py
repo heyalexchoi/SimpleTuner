@@ -57,7 +57,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
             f"{self.phase.value}_train_loss": train_loss,
             f"{self.phase.value}_grad_absmax": grad_absmax,
         })
-        logger.info(f"get_step_logs: {self.current_step_loss_components}")
+        logger.info(f"get_step_logs: phase {self.phase.value}, loss components: {self.current_step_loss_components}")
         return self.current_step_loss_components
     
     def _get_discriminator_trainable_parameters(self):

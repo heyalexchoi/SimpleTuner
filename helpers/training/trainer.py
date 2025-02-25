@@ -3166,6 +3166,9 @@ class Trainer(AdversarialTrainerMixin):
                         step=self.state["global_step"],
                     )
 
+                    if self.config.use_adversarial_loss:
+                        self.adversarial_step_will_end()
+
                 logs = {
                     "step_loss": loss.detach().item(),
                     "lr": float(self.lr),
@@ -3211,9 +3214,6 @@ class Trainer(AdversarialTrainerMixin):
                             logger.error(
                                 f"Error uploading to hub: {e}, continuing training."
                             )
-
-                if self.config.use_adversarial_loss:
-                    self.adversarial_step_will_end()
 
                 self.accelerator.wait_for_everyone()
 
