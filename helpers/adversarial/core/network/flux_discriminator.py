@@ -226,9 +226,9 @@ class FluxTransformer2DDiscriminator(nn.Module):
                 joint_attention_kwargs=None, added_cond_kwargs={},
                 extracted_features_grads_enabled=True,
                 **kwargs):
+        # keeping transformer in training mode is **very** helpful for memory usage via gradient checkpointing
         self._is_collecting_features = True
         # Clear features from previous forward passes
-        logger.debug(f"flux discriminator forward unnamed kwargs: {kwargs}")
         self.features = []
 
         # Convert guidance_scale to tensor with proper device/dtype matching hidden_states
@@ -241,11 +241,7 @@ class FluxTransformer2DDiscriminator(nn.Module):
          # Both freeze and verify transformer parameters
         self.transformer.requires_grad_(False)
         assert not any(p.requires_grad for p in self.transformer.parameters()), "Transformer must be frozen"
-        
-        # Store training mode and switch to eval
-        training_mode = self.transformer.training
-        self.transformer.eval()
-        
+                
         with torch.set_grad_enabled(extracted_features_grads_enabled):
             self.transformer.forward(
                     hidden_states=hidden_states,
@@ -258,14 +254,11 @@ class FluxTransformer2DDiscriminator(nn.Module):
                     joint_attention_kwargs=joint_attention_kwargs,
                     **added_cond_kwargs
                 )
-            
-        # Restore original training mode
-        self.transformer.train(training_mode)
 
         # Process extracted features
         res_list = []
         
-        for feat, head in zip(self.features, self.heads):
+        for feat, head in zip(self.features, self.heads):            
             if self.gradient_checkpointing and self.training:
                 # Use gradient checkpointing for memory efficiency
                 res = checkpoint(
