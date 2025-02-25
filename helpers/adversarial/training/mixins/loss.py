@@ -13,6 +13,12 @@ class AdversarialLossMixin(AdversarialTrainerProtocol):
         super().__init__(*args, **kwargs)
 
     def calculate_adversarial_loss(self, unpacked_generator_predicted_noise, prepared_batch) -> torch.Tensor:
+        if self.is_executing_eval:
+            logger.info("calculate_adversarial_loss: trainer.is_executing_eval is True, using calculate_generator_loss")
+            return self.calculate_generator_loss(
+                unpacked_generator_predicted_noise=unpacked_generator_predicted_noise, 
+                prepared_batch=prepared_batch
+                )
         if self.phase == Phase.G:
             return self.calculate_generator_loss(
                 unpacked_generator_predicted_noise=unpacked_generator_predicted_noise, 

@@ -27,3 +27,4 @@ class AdversarialTrainerProtocol(TrainerProtocol):
     discriminator_optimizer: Optimizer
     phase: Phase
     current_step_loss_components: dict
+    is_executing_eval: bool

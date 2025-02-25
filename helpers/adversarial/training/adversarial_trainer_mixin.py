@@ -27,6 +27,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         super().__init__(*args, **kwargs)
         self.phase = Phase.G
         self.current_step_loss_components = {}
+        self.is_executing_eval = False
 
     def load_discriminator(self, config):
         logger.debug("Loading discriminator")

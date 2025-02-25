@@ -3144,6 +3144,8 @@ class Trainer(AdversarialTrainerMixin):
                         self.state
                     ):
                         self.mark_optimizer_eval()
+                        # need to temporarily force G phase _calculate_loss
+                        self.is_executing_eval = True
                         all_accumulated_losses = self.evaluation.execute_eval(
                             prepare_batch=self.prepare_batch,
                             model_predict=self.model_predict,
@@ -3151,6 +3153,8 @@ class Trainer(AdversarialTrainerMixin):
                             get_prediction_target=self.get_prediction_target,
                             noise_scheduler=self._get_noise_scheduler(),
                         )
+                        # put it back
+                        self.is_executing_eval = False
                         tracker_table = self.evaluation.generate_tracker_table(
                             all_accumulated_losses=all_accumulated_losses
                         )
