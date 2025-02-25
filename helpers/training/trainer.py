@@ -2889,18 +2889,6 @@ class Trainer(AdversarialTrainerMixin):
                         
                         self.accelerator.backward(loss)
 
-                        ## DEBUG
-                        # Check grads exist and reasonable
-                        # if self.phase == Phase.G:
-                        #     logger.info("Phase G AFTER BACKWARD lycoris_wrapped_network named parameters grad stats:")
-                        #     for name, param in self.lycoris_wrapped_network.named_parameters():
-                        #         if param.grad is not None:
-                        #             logger.info(f"{name} grad stats:")
-                        #             logger.info(f"Mean: {param.grad.abs().mean()}")
-                        #             logger.info(f"Range: {param.grad.min()}, {param.grad.max()}")
-                                    
-                        ##
-
                         if (
                             self.config.optimizer != "adam_bfloat16"
                             and self.config.gradient_precision == "fp32"
