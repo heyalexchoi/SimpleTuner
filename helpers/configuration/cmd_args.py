@@ -2203,6 +2203,14 @@ def get_argument_parser():
             "The learning rate for the discriminator."
         ),
     )
+    parser.add_argument(
+        "--d_max_grad_norm",
+        default=2.0,
+        type=float,
+        help=(
+            "The max gradient norm for the discriminator."
+        ),
+    )
     return parser
 
 

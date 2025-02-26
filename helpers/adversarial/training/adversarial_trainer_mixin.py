@@ -135,3 +135,10 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         else:
             self.phase = Phase.G
         torch.cuda.empty_cache()
+
+    def get_max_grad_norm(self) -> float:
+        if self.phase == Phase.G:
+            return self.config.max_grad_norm
+        else:
+            # Phase D
+            return self.config.d_max_grad_norm

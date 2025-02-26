@@ -2899,17 +2899,18 @@ class Trainer(AdversarialTrainerMixin):
                                     param.grad.data = param.grad.data.to(torch.float32)
 
                         self.grad_norm = self._max_grad_value()
+                        max_grad_norm = self.get_max_grad_norm()
                         if (
                             self.accelerator.sync_gradients
                             and self.config.optimizer
                             not in ["optimi-stableadamw", "prodigy"]
-                            and self.config.max_grad_norm > 0
+                            and max_grad_norm > 0
                         ):
                             # StableAdamW/Prodigy do not need clipping, similar to Adafactor.
                             if self.config.grad_clip_method == "norm":
                                 self.grad_norm = self.accelerator.clip_grad_norm_(
                                     self._get_trainable_parameters(),
-                                    self.config.max_grad_norm,
+                                    max_grad_norm,
                                 )
                             elif self.config.use_deepspeed_optimizer:
                                 # deepspeed can only do norm clipping (internally)
@@ -2917,7 +2918,7 @@ class Trainer(AdversarialTrainerMixin):
                             elif self.config.grad_clip_method == "value":
                                 self.accelerator.clip_grad_value_(
                                     self._get_trainable_parameters(),
-                                    self.config.max_grad_norm,
+                                    max_grad_norm,
                                 )
                             else:
                                 raise ValueError(
