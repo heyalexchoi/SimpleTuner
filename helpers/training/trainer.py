@@ -2900,6 +2900,7 @@ class Trainer(AdversarialTrainerMixin):
 
                         self.grad_norm = self._max_grad_value()
                         max_grad_norm = self.get_max_grad_norm()
+                        logger.info(f"max_grad_norm: {max_grad_norm} phase: {self.phase}")
                         if (
                             self.accelerator.sync_gradients
                             and self.config.optimizer
