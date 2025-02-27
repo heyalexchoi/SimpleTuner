@@ -294,3 +294,8 @@ class FluxTransformer2DDiscriminator(nn.Module):
         """
         self.gradient_checkpointing = False
         return self
+
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        # Filter out transformer parameters
+        return {k: v for k, v in state_dict.items() if not k.startswith('transformer.')}
