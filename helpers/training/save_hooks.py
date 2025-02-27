@@ -19,6 +19,7 @@ import json
 from safetensors import safe_open
 from safetensors.torch import save_file
 from tqdm import tqdm
+import torch
 
 
 logger = logging.getLogger("SaveHookManager")
@@ -108,6 +109,7 @@ class SaveHookManager:
         args,
         unet,
         transformer,
+        discriminator,
         ema_model,
         text_encoder_1,
         text_encoder_2,
@@ -118,6 +120,7 @@ class SaveHookManager:
         self.args = args
         self.unet = unet
         self.transformer = transformer
+        self.discriminator = discriminator
         if self.unet is not None and self.transformer is not None:
             raise ValueError("Both `unet` and `transformer` cannot be set.")
         self.text_encoder_1 = text_encoder_1
@@ -406,6 +409,10 @@ class SaveHookManager:
                 self.ema_model.save_state_dict(ema_model_path)
             except Exception as e:
                 logger.error(f"Error saving EMA model: {e}")
+        
+        if self.args.use_adversarial_loss:
+            self._save_discriminator(models=models, weights=weights, output_dir=output_dir)
+
         if "lora" in self.args.model_type and self.args.lora_type == "standard":
             self._save_lora(models=models, weights=weights, output_dir=output_dir)
             return
@@ -414,6 +421,17 @@ class SaveHookManager:
             return
         else:
             self._save_full_model(models=models, weights=weights, output_dir=output_dir)
+
+    def _save_discriminator(self, models, weights, output_dir):
+        discriminator_path = os.path.join(output_dir, "discriminator.bin")
+        torch.save(self.discriminator.state_dict(), discriminator_path)
+
+    def _load_discriminator(self, models, input_dir):
+        discriminator_path = os.path.join(input_dir, "discriminator.bin")
+        if os.path.exists(discriminator_path):
+            self.discriminator.load_state_dict(torch.load(discriminator_path))
+        else:
+            logger.warning(f"No discriminator checkpoint found at {discriminator_path}")
 
     def _load_lora(self, models, input_dir):
         logger.info(f"Loading LoRA weights from Path: {input_dir}")
@@ -583,6 +601,10 @@ class SaveHookManager:
                 # self.ema_model.to(self.accelerator.device)
             except Exception as e:
                 logger.error(f"Could not load EMA model: {e}")
+
+        if self.args.use_adversarial_loss:
+            self._load_discriminator(models=models, input_dir=input_dir)
+
         if "lora" in self.args.model_type and self.args.lora_type == "standard":
             self._load_lora(models=models, input_dir=input_dir)
         elif "lora" in self.args.model_type and self.args.lora_type == "lycoris":
