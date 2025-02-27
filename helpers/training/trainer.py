@@ -1362,6 +1362,7 @@ class Trainer(AdversarialTrainerMixin):
             args=self.config,
             unet=self.unet,
             transformer=self.transformer,
+            discriminator=self.discriminator,
             ema_model=self.ema_model,
             accelerator=self.accelerator,
             text_encoder_1=self.text_encoder_1,

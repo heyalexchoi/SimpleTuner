@@ -424,11 +424,13 @@ class SaveHookManager:
 
     def _save_discriminator(self, models, weights, output_dir):
         discriminator_path = os.path.join(output_dir, "discriminator.bin")
+        logger.info(f"Saving discriminator to {discriminator_path}")
         torch.save(self.discriminator.state_dict(), discriminator_path)
 
     def _load_discriminator(self, models, input_dir):
         discriminator_path = os.path.join(input_dir, "discriminator.bin")
         if os.path.exists(discriminator_path):
+            logger.info(f"Loading discriminator from {discriminator_path}")
             self.discriminator.load_state_dict(torch.load(discriminator_path))
         else:
             logger.warning(f"No discriminator checkpoint found at {discriminator_path}")
