@@ -54,9 +54,11 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
         # add phase label to train_loss and grad_absmax
         train_loss = wandb_logs["train_loss"]
         grad_absmax = wandb_logs["grad_absmax"]
+        grad_norm_value = wandb_logs["grad_norm_value"]
         self.current_step_loss_components.update({
             f"{self.phase.value}_train_loss": train_loss,
             f"{self.phase.value}_grad_absmax": grad_absmax,
+            f"{self.phase.value}_grad_norm_value": grad_norm_value,
         })
         logger.info(f"get_step_logs: phase {self.phase.value}, loss components: {self.current_step_loss_components}")
         return self.current_step_loss_components

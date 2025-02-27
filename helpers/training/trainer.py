@@ -2370,6 +2370,14 @@ class Trainer(AdversarialTrainerMixin):
                 max_grad_value = max(max_grad_value, param.grad.abs().max().item())
 
         return max_grad_value
+    
+    def _grad_norm_value(self):
+        total_norm = 0.0
+        for param in self._get_trainable_parameters():
+            if param.grad is not None:
+                param_norm = param.grad.data.norm(2).item()
+                total_norm += param_norm ** 2
+        return total_norm ** 0.5  # Return the square root of the sum of squares
 
     def prepare_batch(self, batch: dict):
         """
@@ -2899,6 +2907,9 @@ class Trainer(AdversarialTrainerMixin):
                                     param.grad.data = param.grad.data.to(torch.float32)
 
                         self.grad_norm = self._max_grad_value()
+                        # trying to change as little as possible. put this here for logging to wandb
+                        self.grad_norm_value = self._grad_norm_value()
+
                         max_grad_norm = self.get_max_grad_norm()
                         logger.info(f"max_grad_norm: {max_grad_norm} phase: {self.phase}")
                         if (
@@ -2982,6 +2993,7 @@ class Trainer(AdversarialTrainerMixin):
                             wandb_logs["grad_norm"] = self.grad_norm
                         else:
                             wandb_logs["grad_absmax"] = self.grad_norm
+                            wandb_logs["grad_norm_value"] = self.grad_norm_value
                     if self.validation is not None and hasattr(
                         self.validation, "evaluation_result"
                     ):
