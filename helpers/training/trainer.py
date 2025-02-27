@@ -1730,7 +1730,7 @@ class Trainer(AdversarialTrainerMixin):
                     init_kwargs={
                         "wandb": {
                             "name": tracker_run_name,
-                            "id": f"{public_args_hash}",
+                            "id": f"{public_args_hash}-1",
                             "resume": "allow",
                             "allow_val_change": True,
                         }
