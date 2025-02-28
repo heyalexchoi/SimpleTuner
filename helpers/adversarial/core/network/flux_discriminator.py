@@ -299,3 +299,10 @@ class FluxTransformer2DDiscriminator(nn.Module):
         state_dict = super().state_dict(*args, **kwargs)
         # Filter out transformer parameters
         return {k: v for k, v in state_dict.items() if not k.startswith('transformer.')}
+
+    def load_state_dict(self, state_dict, strict=False, *args, **kwargs):
+        """
+        Override load_state_dict to use strict=False by default since we intentionally
+        exclude transformer parameters when saving the state dict.
+        """
+        return super().load_state_dict(state_dict, strict=strict, *args, **kwargs)
