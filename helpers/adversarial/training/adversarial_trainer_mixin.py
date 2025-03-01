@@ -25,6 +25,7 @@ class AdversarialTrainerMixin(AdversarialLossMixin, AdversarialTrainerProtocol):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.discriminator = None # type: ignore
         self.phase = Phase.G
         self.current_step_loss_components = {}
         self.is_executing_eval = False
